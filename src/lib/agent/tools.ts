@@ -1,0 +1,321 @@
+import { z } from "zod";
+import { analyzeChart } from "../analysis/analyze";
+import { getProvider } from "../data/provider";
+import { getOnchainSnapshot, getWalletBalances } from "../chain/onchain";
+import { ScanCriteriaSchema } from "../scanner/criteria";
+import { scanTokens } from "../scanner/scan";
+import { buildTrade, TradeIntentSchema, validateIntent } from "../trade/trade";
+import type { TokenMarket, Timeframe } from "../types";
+
+export type Artifact =
+  | { type: "scan"; data: Awaited<ReturnType<typeof scanTokens>> }
+  | { type: "analysis"; symbol: string; timeframe: Timeframe; source: string; data: ReturnType<typeof analyzeChart> }
+  | { type: "trade"; data: TradeProposal };
+
+export interface TradeProposal {
+  ok: boolean;
+  errors: string[];
+  intent: z.infer<typeof TradeIntentSchema>;
+  symbol: string;
+  preview?: { amountIn: string; estimatedOut: string; minOut: string; slippageBps: number; notionalUsd: number; warnings: string[] };
+  requiresUserApproval: true;
+}
+
+export interface ToolOutcome {
+  result: unknown;
+  artifact?: Artifact;
+}
+
+interface ToolDef {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  run: (args: unknown) => Promise<ToolOutcome>;
+}
+
+const TF = z.enum(["5m", "15m", "1h", "4h", "1d"]);
+const TF_SCHEMA = { type: "string", enum: ["5m", "15m", "1h", "4h", "1d"] };
+
+async function resolve(query: string): Promise<TokenMarket> {
+  const m = await getProvider().findToken(query);
+  if (!m) throw new Error(`Token "${query}" not found on Robinhood Chain data source`);
+  return m;
+}
+
+const round = (v: number | null, digits = 2) =>
+  v === null || !Number.isFinite(v) ? null : Number(v.toFixed(digits));
+
+function marketSummary(m: TokenMarket) {
+  return {
+    symbol: m.token.symbol,
+    name: m.token.name,
+    address: m.token.address,
+    priceUsd: round(m.priceUsd, 6),
+    oraclePriceUsd: round(m.oraclePriceUsd, 6),
+    oracleBasisPct: round(m.oracleBasisPct),
+    oracleStale: m.oracleStale,
+    pool: { address: m.poolAddress, quote: m.quoteSymbol, feeTier: m.feeTier },
+    liquidityUsd: round(m.liquidityUsd, 0),
+    volume24hUsd: round(m.volume24hUsd, 0),
+    change1hPct: round(m.priceChange1hPct),
+    change24hPct: round(m.priceChange24hPct),
+    ageDays: m.createdAt === null ? null : Math.round((Date.now() / 1000 - m.createdAt) / 86400),
+    tradableNow: m.tradableNow,
+    hasPriceHistory: m.hasPriceHistory,
+  };
+}
+
+function pickTimeframe(requested: Timeframe | undefined): Timeframe {
+  const p = getProvider();
+  const tf = requested ?? "1h";
+  if (!p.supportedTimeframes.includes(tf)) {
+    throw new Error(`Timeframe ${tf} unsupported by ${p.source} provider. Supported: ${p.supportedTimeframes.join(", ")}`);
+  }
+  return tf;
+}
+
+const tools: ToolDef[] = [
+  {
+    name: "list_market",
+    description: "List the most active tokens on Robinhood Chain with price, liquidity, volume and changes.",
+    parameters: {
+      type: "object",
+      properties: { limit: { type: "integer", minimum: 1, maximum: 50 } },
+      additionalProperties: false,
+    },
+    async run(raw) {
+      const { limit } = z.object({ limit: z.number().int().min(1).max(50).default(15) }).parse(raw ?? {});
+      const p = getProvider();
+      const all = (await p.listTokens(500)).slice(0, limit);
+      return {
+        result: {
+          source: p.source,
+          capabilities: p.capabilities,
+          note: p.capabilities.volume24h ? undefined : "This data source cannot report trading volume.",
+          tokens: all.map(marketSummary),
+        },
+      };
+    },
+  },
+  {
+    name: "analyze_chart",
+    description:
+      "Deep technical analysis of one token: trend, RSI, MACD, moving averages, Bollinger, ATR, support/resistance and pattern signals.",
+    parameters: {
+      type: "object",
+      properties: {
+        token: { type: "string", description: "Symbol, name fragment or 0x address" },
+        timeframe: TF_SCHEMA,
+      },
+      required: ["token"],
+      additionalProperties: false,
+    },
+    async run(raw) {
+      const args = z.object({ token: z.string().min(1).max(80), timeframe: TF.optional() }).parse(raw);
+      const p = getProvider();
+      const market = await resolve(args.token);
+      const tf = pickTimeframe(args.timeframe);
+      const candles = await p.getCandles(market, tf, 300);
+      const analysis = analyzeChart(candles, tf);
+      return {
+        result: { source: p.source, market: marketSummary(market), analysis },
+        artifact: { type: "analysis", symbol: market.token.symbol, timeframe: tf, source: p.source, data: analysis },
+      };
+    },
+  },
+  {
+    name: "detect_patterns",
+    description: "Surface chart patterns for one token across every available timeframe (multi-timeframe confluence).",
+    parameters: {
+      type: "object",
+      properties: { token: { type: "string" } },
+      required: ["token"],
+      additionalProperties: false,
+    },
+    async run(raw) {
+      const { token } = z.object({ token: z.string().min(1).max(80) }).parse(raw);
+      const p = getProvider();
+      const market = await resolve(token);
+      const perTimeframe = await Promise.all(
+        p.supportedTimeframes.map(async (tf) => {
+          const candles = await p.getCandles(market, tf, 300);
+          const a = analyzeChart(candles, tf);
+          return { timeframe: tf, trend: a.trend.direction, rsi14: a.indicators.rsi14, patterns: a.patterns };
+        }),
+      );
+      return { result: { source: p.source, market: marketSummary(market), perTimeframe } };
+    },
+  },
+  {
+    name: "scan_tokens",
+    description:
+      "Scan all Robinhood Chain tokens for ones matching exact criteria (liquidity, volume, momentum, age, RSI, trend, patterns). Translate the user's request into these filters.",
+    parameters: {
+      type: "object",
+      properties: {
+        minLiquidityUsd: { type: "number" },
+        maxLiquidityUsd: { type: "number" },
+        minVolume24hUsd: { type: "number" },
+        minPriceChange1hPct: { type: "number" },
+        maxPriceChange1hPct: { type: "number" },
+        minPriceChange24hPct: { type: "number" },
+        maxPriceChange24hPct: { type: "number" },
+        minAgeDays: { type: "number" },
+        maxAgeDays: { type: "number" },
+        symbolContains: { type: "string" },
+        tradableNow: { type: "boolean" },
+        maxOracleBasisPct: { type: "number", description: "Max absolute gap between pool price and oracle price, percent" },
+        timeframe: TF_SCHEMA,
+        rsiMin: { type: "number" },
+        rsiMax: { type: "number" },
+        trend: { type: "string", enum: ["bullish", "bearish", "neutral"] },
+        priceAboveSma20: { type: "boolean" },
+        priceAboveSma50: { type: "boolean" },
+        patternsAny: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: [
+              "golden_cross", "death_cross", "macd_bull_cross", "macd_bear_cross", "rsi_overbought",
+              "rsi_oversold", "breakout_up", "breakdown", "bb_squeeze", "double_top", "double_bottom",
+              "rsi_bull_div", "rsi_bear_div",
+            ],
+          },
+        },
+        patternDirection: { type: "string", enum: ["bullish", "bearish", "neutral"] },
+        minPatternConfidence: { type: "number" },
+        sortBy: { type: "string", enum: ["liquidity", "volume24h", "change1h", "change24h", "rsi", "patternConfidence"] },
+        sortDir: { type: "string", enum: ["asc", "desc"] },
+        limit: { type: "integer", minimum: 1, maximum: 50 },
+      },
+      additionalProperties: false,
+    },
+    async run(raw) {
+      const provider = getProvider();
+      const criteria = ScanCriteriaSchema.parse(raw ?? {});
+      const result = await scanTokens(provider, criteria);
+      const slim = {
+        source: result.source,
+        scanned: result.scanned,
+        passedMarketFilters: result.passedMarketFilters,
+        notes: result.notes,
+        matches: result.matches.map((m) => ({
+          ...marketSummary(m.market),
+          reasons: m.reasons,
+          rsi14: m.analysis?.indicators.rsi14 ?? null,
+          trend: m.analysis?.trend.direction ?? null,
+          patterns: m.analysis?.patterns.slice(0, 3).map((p) => `${p.name} (${p.direction}, ${p.confidence})`) ?? [],
+        })),
+      };
+      return { result: slim, artifact: { type: "scan", data: result } };
+    },
+  },
+  {
+    name: "onchain_snapshot",
+    description:
+      "Real on-chain activity for one token over a recent window: swap volume and buy/sell split from its Uniswap pool, transfer count, unique wallets, mints/burns, whale transfers and the biggest net accumulators and distributors. This is the only way to get volume, and it works for one token at a time.",
+    parameters: {
+      type: "object",
+      properties: {
+        token: { type: "string", description: "Symbol or 0x address" },
+        hours: { type: "number", minimum: 0.25, maximum: 24, description: "Lookback window in hours (default 6, max 24)" },
+      },
+      required: ["token"],
+      additionalProperties: false,
+    },
+    async run(raw) {
+      const args = z.object({ token: z.string().min(1).max(80), hours: z.number().min(0.25).max(24).optional() }).parse(raw);
+      const p = getProvider();
+      if (!p.capabilities.liveTrading) {
+        return { result: { error: `On-chain snapshot unavailable: the ${p.source} data source has no real contracts.` } };
+      }
+      const market = await resolve(args.token);
+      return { result: await getOnchainSnapshot(market, { hours: args.hours }) };
+    },
+  },
+  {
+    name: "wallet_balances",
+    description: "Read native and ERC-20 balances for a wallet address on Robinhood Chain.",
+    parameters: {
+      type: "object",
+      properties: {
+        wallet: { type: "string" },
+        tokens: { type: "array", items: { type: "string" }, description: "ERC-20 contract addresses" },
+      },
+      required: ["wallet"],
+      additionalProperties: false,
+    },
+    async run(raw) {
+      const args = z.object({ wallet: z.string(), tokens: z.array(z.string()).max(20).optional() }).parse(raw);
+      return { result: await getWalletBalances(args.wallet, args.tokens ?? []) };
+    },
+  },
+  {
+    name: "propose_trade",
+    description:
+      "Propose a swap for the user to review. This NEVER executes: the user must approve and sign in their own wallet. Guardrails on size, slippage and liquidity are enforced.",
+    parameters: {
+      type: "object",
+      properties: {
+        side: { type: "string", enum: ["buy", "sell"] },
+        token: { type: "string", description: "0x token address (use list_market/analyze_chart to find it)" },
+        amount: { type: "number", description: "buy: native asset to spend. sell: token amount to sell." },
+        slippageBps: { type: "integer", minimum: 1, maximum: 1000 },
+        rationale: { type: "string" },
+      },
+      required: ["side", "token", "amount"],
+      additionalProperties: false,
+    },
+    async run(raw) {
+      const intent = TradeIntentSchema.parse(raw);
+      const p = getProvider();
+      const market = await resolve(intent.token);
+      const nativeUsd = await p.nativeUsd();
+      let errors = validateIntent(intent, market, nativeUsd);
+      let preview: TradeProposal["preview"];
+      if (!p.capabilities.liveTrading) {
+        errors = [...errors, `The ${p.source} data source is not backed by real pools; trades cannot be executed.`];
+      }
+      if (errors.length === 0) {
+        const built = buildTrade(intent, market, nativeUsd, {
+          wallet: "0x000000000000000000000000000000000000dEaD",
+          currentAllowance: 0n,
+        });
+        preview = {
+          amountIn: built.amountIn,
+          estimatedOut: built.estimatedOut,
+          minOut: built.minOut,
+          slippageBps: built.slippageBps,
+          notionalUsd: built.notionalUsd,
+          warnings: built.warnings,
+        };
+      }
+      const proposal: TradeProposal = {
+        ok: errors.length === 0,
+        errors,
+        intent: { ...intent, token: market.token.address },
+        symbol: market.token.symbol,
+        preview,
+        requiresUserApproval: true,
+      };
+      return { result: proposal, artifact: { type: "trade", data: proposal } };
+    },
+  },
+];
+
+export const toolDefinitions = tools.map((t) => ({
+  type: "function" as const,
+  function: { name: t.name, description: t.description, parameters: t.parameters },
+}));
+
+export async function runTool(name: string, rawArgs: string): Promise<ToolOutcome> {
+  const tool = tools.find((t) => t.name === name);
+  if (!tool) return { result: { error: `Unknown tool ${name}` } };
+  try {
+    const args: unknown = rawArgs ? JSON.parse(rawArgs) : {};
+    return await tool.run(args);
+  } catch (err) {
+    const message = err instanceof z.ZodError ? `Invalid arguments: ${err.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}` : (err as Error).message;
+    return { result: { error: message } };
+  }
+}
