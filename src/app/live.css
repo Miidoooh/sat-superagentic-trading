@@ -1,0 +1,412 @@
+/* ================= LIVE VIEWS (Whale Radar, Pons Trenches) ================= */
+.grid[hidden] {
+  display: none;
+}
+.view-tabs {
+  margin-left: 6px;
+}
+.view-tabs .tf {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.view-tabs .new-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.view-tabs .tf.active .new-tag {
+  background: rgba(0, 0, 0, 0.18);
+  color: #000;
+}
+
+.live {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+.live-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.live-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.live-caption {
+  margin-top: 3px;
+  font-size: 12px;
+  max-width: 640px;
+}
+.live-sub {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 10px 2px 8px;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.live-sub .dim {
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.live-empty {
+  padding: 18px 4px;
+  font-size: 12.5px;
+}
+.live-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pressure {
+  padding: 10px 18px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.pressure-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
+  margin-bottom: 6px;
+}
+.pressure-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--red);
+  overflow: hidden;
+  opacity: 0.9;
+}
+.pressure-bar .up-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--green);
+  transition: width 0.6s ease;
+}
+
+/* ---- radar ---- */
+.radar-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+}
+.radar-feed {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 14px;
+  border-right: 1px solid var(--border);
+}
+.trade-rows {
+  overflow-y: auto;
+  min-height: 0;
+  padding-bottom: 16px;
+}
+.trade-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 96px 110px 64px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  border-left: 2px solid transparent;
+}
+.trade-row:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.015);
+}
+.trade-row.buy {
+  border-left-color: rgba(0, 212, 10, 0.5);
+}
+.trade-row.sell {
+  border-left-color: rgba(255, 77, 46, 0.5);
+}
+.trade-row.flash.buy {
+  animation: flash-buy 1.6s ease-out;
+}
+.trade-row.flash.sell {
+  animation: flash-sell 1.6s ease-out;
+}
+@keyframes flash-buy {
+  from {
+    background: rgba(0, 212, 10, 0.22);
+  }
+}
+@keyframes flash-sell {
+  from {
+    background: rgba(255, 77, 46, 0.22);
+  }
+}
+.side-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-align: center;
+  padding: 2px 0;
+  border-radius: 5px;
+}
+.side-badge.buy {
+  color: var(--green);
+  background: var(--green-dim);
+}
+.side-badge.sell {
+  color: var(--red);
+  background: var(--red-dim);
+}
+.trade-sym {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trade-sym:hover {
+  color: var(--accent);
+}
+.trade-sym .logo {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+}
+.venue-tag {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+}
+.venue-tag.pons {
+  color: var(--accent);
+  border-color: rgba(204, 255, 0, 0.25);
+  background: var(--accent-dim);
+}
+.trade-usd {
+  text-align: right;
+  font-weight: 650;
+}
+.trade-wallet a,
+.trade-age {
+  color: inherit;
+}
+.trade-wallet a:hover,
+.trade-age:hover {
+  color: var(--text);
+}
+.trade-age {
+  text-align: right;
+}
+
+.radar-flows {
+  overflow-y: auto;
+  padding: 0 14px 16px;
+}
+.flow-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  width: 100%;
+  padding: 7px 9px;
+  margin-bottom: 4px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  font-size: 13px;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.flow-row:hover {
+  border-color: var(--border-bright);
+}
+.flow-row > * {
+  position: relative;
+}
+.flow-bar {
+  position: absolute !important;
+  inset: 0 auto 0 0;
+  opacity: 0.14;
+}
+.flow-bar.up {
+  background: var(--green);
+}
+.flow-bar.down {
+  background: var(--red);
+}
+.flow-sym {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-weight: 600;
+}
+.flow-meta {
+  grid-column: 1 / -1;
+  font-size: 11px;
+}
+
+/* ---- trenches ---- */
+.trench-stats {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  padding: 10px 18px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.trench-stats .quote.grow {
+  flex: 1;
+  min-width: 220px;
+  gap: 6px;
+}
+.trench-stats .quote.grow b {
+  font-weight: 650;
+}
+.trench-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.trench-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 10px;
+  border-right: 1px solid var(--border);
+}
+.trench-col:last-child {
+  border-right: none;
+}
+.trench-list {
+  overflow-y: auto;
+  min-height: 0;
+  padding-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.trench-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  text-align: left;
+  font-size: 12px;
+  transition: border-color 0.12s, background 0.12s;
+}
+button.trench-card:hover {
+  border-color: var(--border-bright);
+  background: var(--panel-2);
+}
+.trench-card.graduated {
+  border-color: rgba(204, 255, 0, 0.2);
+}
+.trench-card a {
+  color: inherit;
+}
+.trench-top,
+.trench-mid,
+.trench-bot,
+.trench-flow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.trench-sym {
+  font-size: 13.5px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trench-flow {
+  font-size: 11px;
+}
+.curve-progress {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+.curve-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--muted);
+  transition: width 0.6s ease;
+}
+.curve-progress.warm span {
+  background: var(--warn);
+}
+.curve-progress.hot span {
+  background: linear-gradient(90deg, var(--accent), var(--green));
+  box-shadow: 0 0 8px rgba(204, 255, 0, 0.5);
+}
+
+.pons-card .curve-progress {
+  display: block;
+  margin-top: 6px;
+  height: 3px;
+}
+.accent-link {
+  color: var(--accent);
+  font-weight: 600;
+}
+.accent-link:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 1100px) {
+  .radar-grid {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+  .radar-feed {
+    border-right: none;
+  }
+  .trade-rows {
+    overflow: visible;
+  }
+  .trench-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-y: auto;
+  }
+  .trench-list {
+    overflow: visible;
+  }
+}
+@media (max-width: 640px) {
+  .trade-row {
+    grid-template-columns: 44px minmax(0, 1fr) 80px 48px;
+  }
+  .trade-wallet {
+    display: none;
+  }
+  .trench-grid {
+    grid-template-columns: 1fr;
+  }
+}

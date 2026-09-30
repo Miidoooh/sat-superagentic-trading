@@ -5,10 +5,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import AgentChat from "@/components/AgentChat";
 import ChartPanel from "@/components/ChartPanel";
 import Logo from "@/components/Logo";
+import PonsTrenches from "@/components/PonsTrenches";
 import TokenList from "@/components/TokenList";
 import type { ChainInfo } from "@/components/TradeCard";
+import WhaleRadar from "@/components/WhaleRadar";
+import { ponsTokenUrl, ROBINHOOD_MAINNET } from "@/lib/chain/constants";
 import { fmtAge, fmtNum, fmtPct, fmtPrice, fmtUsd } from "@/lib/format";
 import type { Candle, ChartAnalysis, ProviderCapabilities, Timeframe, TokenMarket } from "@/lib/types";
+import "../live.css";
 
 interface MarketResponse {
   source: string;
@@ -27,7 +31,15 @@ interface CandleResponse {
 
 const ALL_TF: Timeframe[] = ["5m", "15m", "1h", "4h", "1d"];
 
+type View = "terminal" | "radar" | "trenches";
+const VIEWS: { id: View; label: string; isNew?: boolean }[] = [
+  { id: "terminal", label: "Terminal" },
+  { id: "radar", label: "Whale Radar", isNew: true },
+  { id: "trenches", label: "Pons Trenches", isNew: true },
+];
+
 export default function Terminal() {
+  const [view, setView] = useState<View>("terminal");
   const [market, setMarket] = useState<MarketResponse | null>(null);
   const [selected, setSelected] = useState("");
   const [timeframe, setTimeframe] = useState<Timeframe>("4h");
@@ -35,6 +47,33 @@ export default function Terminal() {
   const [chartError, setChartError] = useState("");
   const [loadError, setLoadError] = useState("");
   const [chartLoading, setChartLoading] = useState(false);
+
+  useEffect(() => {
+    const v = new URLSearchParams(window.location.search).get("view");
+    if (v === "radar" || v === "trenches") setView(v);
+  }, []);
+
+  const switchView = useCallback((next: View) => {
+    setView(next);
+    const url = new URL(window.location.href);
+    if (next === "terminal") url.searchParams.delete("view");
+    else url.searchParams.set("view", next);
+    window.history.replaceState(null, "", url);
+  }, []);
+
+  /** Open a token from a live view: in the terminal when it is listed, otherwise on Pons. */
+  const openToken = useCallback(
+    (address: string, fallbackUrl?: string) => {
+      const listed = market?.tokens.find((t) => t.token.address.toLowerCase() === address.toLowerCase());
+      if (listed) {
+        setSelected(listed.token.address);
+        switchView("terminal");
+      } else if (fallbackUrl) {
+        window.open(fallbackUrl, "_blank", "noopener,noreferrer");
+      }
+    },
+    [market, switchView],
+  );
 
   useEffect(() => {
     fetch("/api/market")
@@ -105,6 +144,14 @@ export default function Terminal() {
             {market.source === "robinhood-chain" ? "live mainnet" : market.source}
           </span>
         )}
+        <div className="tfs view-tabs">
+          {VIEWS.map((v) => (
+            <button key={v.id} className={`tf ${view === v.id ? "active" : ""}`} onClick={() => switchView(v.id)}>
+              {v.label}
+              {v.isNew && <span className="new-tag">NEW</span>}
+            </button>
+          ))}
+        </div>
         <div className="spacer" />
         <span className={`pill ${market?.execution.enabled ? "ok" : ""}`}>
           {market?.execution.enabled
@@ -124,7 +171,20 @@ export default function Terminal() {
         </div>
       )}
 
-      <div className="grid">
+      {view === "radar" && (
+        <WhaleRadar
+          explorer={market?.chain.explorer ?? ROBINHOOD_MAINNET.explorerUrl}
+          onOpenToken={(token, venue) => openToken(token, venue === "pons" ? ponsTokenUrl(token) : undefined)}
+        />
+      )}
+      {view === "trenches" && (
+        <PonsTrenches
+          explorer={market?.chain.explorer ?? ROBINHOOD_MAINNET.explorerUrl}
+          onOpenToken={(token, url) => openToken(token, url)}
+        />
+      )}
+
+      <div className="grid" hidden={view !== "terminal"}>
         <section className="col markets">
           <div className="col-head">
             Markets
@@ -214,9 +274,19 @@ export default function Terminal() {
                 <strong>{current.token.symbol}</strong> is trading on a Pons bonding curve
                 {current.quoteSymbol ? ` quoted in ${current.quoteSymbol}` : ""}.
                 <br />
-                Spot ${fmtPrice(current.priceUsd)} · curve depth {fmtUsd(current.liquidityUsd, { compact: true })}.
-                <br />
-                Candle history starts after the launch graduates to Uniswap.
+                Spot ${fmtPrice(current.priceUsd)}
+                {current.curve &&
+                  ` · ${fmtUsd(current.curve.raisedUsd, { compact: true })} raised of ${fmtUsd(current.curve.thresholdUsd, { compact: true })}`}
+                {current.curve && (
+                  <div className="curve-progress hot" style={{ margin: "12px auto", maxWidth: 320 }}>
+                    <span style={{ width: `${Math.min(100, Math.max(2, current.curve.progressPct))}%` }} />
+                  </div>
+                )}
+                {current.curve && <div className="mono">{current.curve.progressPct.toFixed(1)}% to graduation</div>}
+                Candle history starts after the launch graduates to Uniswap.{" "}
+                <a className="accent-link" href={ponsTokenUrl(current.token.address)} target="_blank" rel="noreferrer noopener">
+                  Trade on Pons ↗
+                </a>
               </div>
             </div>
           ) : chart && chart.candles.length > 0 ? (

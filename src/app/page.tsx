@@ -8,6 +8,16 @@ import { ROBINHOOD_MAINNET } from "@/lib/chain/constants";
 
 const FEATURES = [
   {
+    icon: "◉",
+    title: "Whale Radar",
+    body: "Every Stock Token swap and Pons curve trade from the last 30 minutes, priced in USD. See the biggest buys and sells as they land, net inflow and outflow per token, and live buy versus sell pressure.",
+  },
+  {
+    icon: "▲",
+    title: "Pons Trenches",
+    body: "New Pons launches the moment they deploy, the curves closest to graduating with the real amount raised, the most traded curves right now, and every launch that just graduated to Uniswap.",
+  },
+  {
     icon: "◈",
     title: "Deep chart analysis",
     body: "RSI, MACD, moving averages, Bollinger bands and ATR computed on real oracle price history, with support and resistance clustered from swing pivots.",
@@ -74,7 +84,9 @@ export default function Landing() {
           <span className="hero-mark">
             <Image src="/logo.png" alt="" width={176} height={176} priority />
           </span>
-          <span className="pill accent">Agentic trading for Robinhood Chain</span>
+          <Link className="pill accent new-pill" href="/app?view=radar">
+            <b>NEW</b> Whale Radar and Pons Trenches are live →
+          </Link>
           <h1>
             Your agent reads the <em>whole chain</em> before you read one chart
           </h1>
@@ -87,14 +99,9 @@ export default function Landing() {
             <Link className="btn primary lg" href="/app">
               Enter App →
             </Link>
-            <a
-              className="btn lg"
-              href="https://docs.robinhood.com/chain/"
-              target="_blank"
-              rel="noreferrer noopener"
-            >
-              Robinhood Chain docs
-            </a>
+            <Link className="btn lg" href="/app?view=trenches">
+              Pons Trenches
+            </Link>
           </div>
           <p className="fine">Read-only by default. Trading stays disabled until you turn it on.</p>
         </div>

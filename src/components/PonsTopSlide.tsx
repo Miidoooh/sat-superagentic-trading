@@ -18,10 +18,7 @@ export default function PonsTopSlide({ tokens, selected, onSelect }: Props) {
     () =>
       tokens
         .filter((t) => t.venue === "pons")
-        .sort(
-          (a, b) =>
-            (b.volume24hUsd ?? 0) - (a.volume24hUsd ?? 0) || b.liquidityUsd - a.liquidityUsd,
-        )
+        .sort((a, b) => b.liquidityUsd - a.liquidityUsd)
         .slice(0, TOP_N),
     [tokens],
   );
@@ -32,7 +29,7 @@ export default function PonsTopSlide({ tokens, selected, onSelect }: Props) {
     <div className="pons-slide">
       <div className="pons-slide-head">
         <span className="pons-slide-title">Top curves</span>
-        <span className="dim">by depth</span>
+        <span className="dim">by amount raised</span>
       </div>
       <div className="pons-slide-track">
         {top.map((t, i) => (
@@ -48,6 +45,11 @@ export default function PonsTopSlide({ tokens, selected, onSelect }: Props) {
             <span className="pons-meta">
               {fmtUsd(t.liquidityUsd, { compact: true })} · {t.quoteSymbol}
             </span>
+            {t.curve && (
+              <span className={`curve-progress ${t.curve.progressPct >= 80 ? "hot" : t.curve.progressPct >= 40 ? "warm" : ""}`}>
+                <span style={{ width: `${Math.min(100, Math.max(2, t.curve.progressPct))}%` }} />
+              </span>
+            )}
           </button>
         ))}
       </div>

@@ -36,6 +36,15 @@ export function byDesc(a: number | null, b: number | null): number {
   return b - a;
 }
 
+/** Elapsed time since a unix timestamp, with second resolution for live feeds. */
+export function fmtAgo(timestamp: number, nowSec = Date.now() / 1000): string {
+  const secs = Math.max(0, Math.floor(nowSec - timestamp));
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+  if (secs < 86_400) return `${Math.floor(secs / 3600)}h`;
+  return `${Math.floor(secs / 86_400)}d`;
+}
+
 export function fmtAge(seconds: number | null): string {
   if (seconds === null) return "—";
   const mins = Math.floor((Date.now() / 1000 - seconds) / 60);

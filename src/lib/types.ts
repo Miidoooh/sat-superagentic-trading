@@ -58,6 +58,8 @@ export interface TokenMarket {
   hasPriceHistory: boolean;
   /** Where the spot price was read. Pons launches trade on a bonding curve until they graduate. */
   venue: "uniswap-v3" | "pons";
+  /** Bonding-curve state, Pons launches only. Raised excludes the curve's virtual reserve. */
+  curve?: { progressPct: number; raisedUsd: number; thresholdUsd: number };
 }
 
 export type Direction = "bullish" | "bearish" | "neutral";

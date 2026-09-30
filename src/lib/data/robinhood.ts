@@ -21,10 +21,13 @@ import { listPonsMarkets, type QuoteBook } from "./pons";
  */
 
 const MARKETS_TTL = 90 * 1000;
+const LIST_TTL = 20 * 1000;
 const CANDLE_TTL = 3 * 60 * 1000;
 /** 24h moves change slowly; don't re-walk oracle rounds on every list refresh. */
 const CHANGE_TTL = 3 * 60 * 1000;
 const PONS_TTL = 45 * 1000;
+/** How long the market list waits on a cold 24h volume scan before listing without it. */
+const VOLUME_WAIT_MS = 8 * 1000;
 /** Oracle rounds to pull for the market list, enough to span >24h of updates. */
 const RECENT_ROUNDS = 28;
 /** Oracle rounds to pull for a full chart. */
@@ -51,6 +54,28 @@ export class RobinhoodChainProvider implements MarketDataProvider {
     priceHistory: true,
     liveTrading: true,
   };
+
+  /**
+   * Stock markets without 24h volume: every pool price, oracle price and
+   * change. A few multicalls when warm, so live feeds can lean on it.
+   */
+  async baseStocks(): Promise<TokenMarket[]> {
+    return cache.get("rh:stocks", MARKETS_TTL, () => this.build(), { swr: true });
+  }
+
+  /** USD price of every asset a Pons curve can be quoted in. */
+  async quoteBook(): Promise<QuoteBook> {
+    const [stocks, ethUsd] = await Promise.all([this.baseStocks(), this.nativeUsd().catch(() => 0)]);
+    const book: QuoteBook = { ethUsd, byAddress: new Map() };
+    for (const m of stocks) {
+      book.byAddress.set(m.token.address.toLowerCase(), {
+        usd: m.priceUsd,
+        decimals: m.token.decimals,
+        symbol: m.token.symbol,
+      });
+    }
+    return book;
+  }
 
   private async build(): Promise<TokenMarket[]> {
     const [assets, feeds] = await Promise.all([getStockAssets(), getFeeds()]);
@@ -129,27 +154,32 @@ export class RobinhoodChainProvider implements MarketDataProvider {
       });
     }
 
-    await this.attachSwapVolume(markets);
-    markets.sort(
-      (a, b) =>
-        (b.volume24hUsd ?? 0) - (a.volume24hUsd ?? 0) || b.liquidityUsd - a.liquidityUsd,
-    );
+    markets.sort((a, b) => b.liquidityUsd - a.liquidityUsd);
     return markets;
   }
 
-  private async attachSwapVolume(markets: TokenMarket[]): Promise<void> {
+  /** Base markets plus 24h volume, highest volume first. */
+  private async stocksWithVolume(): Promise<TokenMarket[]> {
+    const markets = (await this.baseStocks()).map((m) => ({ ...m }));
     const specs = markets.map((m) => ({
       pool: m.poolAddress,
       token: m.token.address,
       decimals: m.token.decimals,
       priceUsd: m.priceUsd,
     }));
-    const volumes = await getPoolVolumes24h(specs).catch(() => new Map());
+    // A cold 24h scan takes a minute or more. Don't hold the page for it: the
+    // scan keeps running and the next refresh picks the numbers up.
+    const volumes = await Promise.race([
+      getPoolVolumes24h(specs).catch(() => null),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), VOLUME_WAIT_MS)),
+    ]);
     for (const m of markets) {
-      const v = volumes.get(m.poolAddress.toLowerCase());
-      m.volume24hUsd = v?.volumeUsd ?? 0;
-      m.txCount24h = v?.swapCount ?? 0;
+      const v = volumes?.get(m.poolAddress.toLowerCase());
+      m.volume24hUsd = volumes ? (v?.volumeUsd ?? 0) : null;
+      m.txCount24h = volumes ? (v?.swapCount ?? 0) : null;
     }
+    markets.sort((a, b) => (b.volume24hUsd ?? 0) - (a.volume24hUsd ?? 0) || b.liquidityUsd - a.liquidityUsd);
+    return markets;
   }
 
   /**
@@ -196,32 +226,24 @@ export class RobinhoodChainProvider implements MarketDataProvider {
   }
 
   private async withPons(stocks: TokenMarket[]): Promise<TokenMarket[]> {
-    const book: QuoteBook = { ethUsd: 0, byAddress: new Map() };
-    try {
-      book.ethUsd = await this.nativeUsd();
-    } catch {
-      book.ethUsd = 0;
-    }
-    for (const market of stocks) {
-      book.byAddress.set(market.token.address.toLowerCase(), {
-        usd: market.priceUsd,
-        decimals: market.token.decimals,
-        symbol: market.token.symbol,
+    const pons = await cache
+      .get("rh:pons", PONS_TTL, async () => listPonsMarkets(await this.quoteBook()), { swr: true })
+      .catch((err: unknown) => {
+        console.error("Pons market load failed:", err instanceof Error ? err.message : err);
+        return [] as TokenMarket[];
       });
-    }
-    const pons = await cache.get("rh:pons", PONS_TTL, () => listPonsMarkets(book)).catch((err: unknown) => {
-      console.error("Pons market load failed:", err instanceof Error ? err.message : err);
-      return [] as TokenMarket[];
-    });
     // Robinhood stock tokens first (by 24h volume), then launchpad curves.
     return [...stocks, ...pons];
   }
 
   async listTokens(limit = 200): Promise<TokenMarket[]> {
-    const markets = await cache.get("rh:markets", MARKETS_TTL, async () => {
-      const stocks = await this.build();
-      return this.withPons(stocks);
-    });
+    // Every input below is cached on its own, so re-assembling the list is cheap.
+    const markets = await cache.get(
+      "rh:markets",
+      LIST_TTL,
+      async () => this.withPons(await this.stocksWithVolume()),
+      { swr: true },
+    );
     return markets.slice(0, limit);
   }
 

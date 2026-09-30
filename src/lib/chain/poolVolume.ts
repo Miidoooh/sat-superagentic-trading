@@ -37,7 +37,7 @@ export async function getPoolVolumes24h(specs: PoolVolumeSpec[]): Promise<Map<st
     .map((s) => s.pool.toLowerCase())
     .sort()
     .join(",");
-  return cache.get(`rh:pool-vol24:${poolsKey}`, VOLUME_TTL, () => readVolumes(specs));
+  return cache.get(`rh:pool-vol24:${poolsKey}`, VOLUME_TTL, () => readVolumes(specs), { swr: true });
 }
 
 async function readVolumes(specs: PoolVolumeSpec[]): Promise<Map<string, PoolVolume24h>> {

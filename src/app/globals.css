@@ -189,6 +189,21 @@ textarea {
   padding: 5px 11px;
   font-size: 12.5px;
 }
+.new-pill {
+  gap: 8px;
+  transition: background 0.12s;
+}
+.new-pill:hover {
+  background: rgba(204, 255, 0, 0.2);
+}
+.new-pill b {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #000;
+}
 .btn.icon-only {
   padding: 5px 7px;
   line-height: 0;

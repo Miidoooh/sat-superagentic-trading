@@ -79,10 +79,11 @@ export default function TokenList({ tokens, selected, onSelect }: Props) {
             <span className="sym">{t.token.symbol}</span>
             <span className="px mono">${fmtPrice(t.priceUsd)}</span>
             <span className="sub">
-              {t.venue === "pons" ? "Pons · " : ""}
-              {(t.volume24hUsd ?? 0) > 0
-                ? `${fmtUsd(t.volume24hUsd, { compact: true })} vol`
-                : `${fmtUsd(t.liquidityUsd, { compact: true })} ${t.venue === "pons" ? "curve" : "liq"}`}
+              {t.curve
+                ? `Pons · ${t.curve.progressPct.toFixed(0)}% · ${fmtUsd(t.curve.raisedUsd, { compact: true })} raised`
+                : (t.volume24hUsd ?? 0) > 0
+                  ? `${fmtUsd(t.volume24hUsd, { compact: true })} vol`
+                  : `${fmtUsd(t.liquidityUsd, { compact: true })} liq`}
             </span>
             <span className={`chg mono ${(t.priceChange24hPct ?? 0) >= 0 ? "up" : "down"}`}>
               {fmtPct(t.priceChange24hPct)}

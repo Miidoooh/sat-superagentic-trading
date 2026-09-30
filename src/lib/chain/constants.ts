@@ -47,6 +47,14 @@ export const WRAPPED_NATIVE = "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73" as co
  */
 export const PONS_V2_FACTORY = "0x7eD598BcEf8bd9Edd8C97A195C6d13f40801EC7e" as const;
 
+/** Pons trade router. Curve events name it as buyer/seller when a trade is routed. */
+export const PONS_ROUTER = "0xe33e9e479df8802cb0866d5d05258bec4cf62948" as const;
+
+/** Contracts that show up as the counterparty of a routed trade rather than the trader. */
+export const KNOWN_ROUTERS = new Set([PONS_ROUTER, "0xCaf681a66D020601342297493863E78C959E5cb2"].map((a) => a.toLowerCase()));
+
+export const ponsTokenUrl = (token: string) => `https://www.ponsfamily.com/launchpad/${token}`;
+
 /** Global Dollar, the USD stablecoin most Stock Token pools quote against. 6 decimals. */
 export const USDG = { address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", decimals: 6, symbol: "USDG" } as const;
 

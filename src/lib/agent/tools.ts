@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { analyzeChart } from "../analysis/analyze";
 import { getProvider } from "../data/provider";
+import { RobinhoodChainProvider } from "../data/robinhood";
+import { getTrenches } from "../radar/trenches";
+import { getWhaleRadar } from "../radar/whales";
 import { getOnchainSnapshot, getWalletBalances } from "../chain/onchain";
 import { ScanCriteriaSchema } from "../scanner/criteria";
 import { scanTokens } from "../scanner/scan";
@@ -63,6 +66,7 @@ function marketSummary(m: TokenMarket) {
     tradableNow: m.tradableNow,
     hasPriceHistory: m.hasPriceHistory,
     venue: m.venue,
+    curve: m.curve,
   };
 }
 
@@ -249,6 +253,77 @@ const tools: ToolDef[] = [
     async run(raw) {
       const args = z.object({ wallet: z.string(), tokens: z.array(z.string()).max(20).optional() }).parse(raw);
       return { result: await getWalletBalances(args.wallet, args.tokens ?? []) };
+    },
+  },
+  {
+    name: "whale_radar",
+    description:
+      "Live whale activity across every Stock Token pool and Pons bonding curve over the last 30 minutes: the biggest buys and sells, tokens with the most net inflow and outflow, and total buy vs sell pressure. Use it for questions about who is buying or selling, money flow, or market sentiment right now.",
+    parameters: {
+      type: "object",
+      properties: {
+        minUsd: { type: "number", minimum: 0, description: "Smallest trade to list, in USD (default 1000)" },
+        venue: { type: "string", enum: ["all", "stock", "pons"] },
+      },
+      additionalProperties: false,
+    },
+    async run(raw) {
+      const args = z
+        .object({ minUsd: z.number().min(0).max(10_000_000).default(1000), venue: z.enum(["all", "stock", "pons"]).default("all") })
+        .parse(raw ?? {});
+      const p = getProvider();
+      if (!(p instanceof RobinhoodChainProvider)) {
+        return { result: { error: `Whale Radar needs live chain data; the ${p.source} source has none.` } };
+      }
+      const radar = await getWhaleRadar(p, { ...args, limit: 25 });
+      const now = Math.floor(Date.now() / 1000);
+      return {
+        result: {
+          windowMinutes: radar.windowMinutes,
+          totals: radar.totals,
+          trades: radar.trades.map((t) => ({
+            side: t.side,
+            symbol: t.symbol,
+            venue: t.venue,
+            usd: round(t.usd, 0),
+            trader: t.trader,
+            secondsAgo: now - t.time,
+          })),
+          inflows: radar.inflows.map(({ symbol, venue, netUsd, trades, traders }) => ({ symbol, venue, netUsd: round(netUsd, 0), trades, traders })),
+          outflows: radar.outflows.map(({ symbol, venue, netUsd, trades, traders }) => ({ symbol, venue, netUsd: round(netUsd, 0), trades, traders })),
+        },
+      };
+    },
+  },
+  {
+    name: "pons_trenches",
+    description:
+      "Live state of the Pons launchpad: newest launches, curves closest to graduating to Uniswap (with % of target raised), the most traded curves in the last 30 minutes, and recent graduations. Use it for questions about new launches, memecoins, or what is about to graduate.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    async run() {
+      const p = getProvider();
+      if (!(p instanceof RobinhoodChainProvider)) {
+        return { result: { error: `Pons Trenches needs live chain data; the ${p.source} source has none.` } };
+      }
+      const t = await getTrenches(p);
+      const card = (c: (typeof t.newest)[number]) => ({
+        symbol: c.symbol,
+        address: c.token,
+        progressPct: c.progressPct,
+        raisedUsd: round(c.raisedUsd, 0),
+        buyUsd30m: round(c.flow.buyUsd, 0),
+        sellUsd30m: round(c.flow.sellUsd, 0),
+        url: c.url,
+      });
+      return {
+        result: {
+          stats: t.stats,
+          newest: t.newest.slice(0, 10).map(card),
+          graduating: t.graduating.slice(0, 10).map(card),
+          hot: t.hot.slice(0, 10).map(card),
+          graduated: t.graduated.slice(0, 8).map(({ symbol, token, liquidityUsd, url }) => ({ symbol, address: token, liquidityUsd: round(liquidityUsd, 0), url })),
+        },
+      };
     },
   },
   {
