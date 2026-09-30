@@ -46,10 +46,10 @@ export const ScanCriteriaSchema = z
     patternDirection: z.enum(["bullish", "bearish", "neutral"]).optional(),
     minPatternConfidence: z.number().min(0).max(1).optional(),
 
-    /** Defaults to liquidity: it is the one ranking every data source can produce. */
+    /** Defaults to 24h volume on Robinhood Chain (Uniswap swap logs). */
     sortBy: z
       .enum(["liquidity", "volume24h", "change1h", "change24h", "rsi", "patternConfidence"])
-      .default("liquidity"),
+      .default("volume24h"),
     sortDir: z.enum(["asc", "desc"]).default("desc"),
     limit: z.number().int().min(1).max(50).default(10),
   })

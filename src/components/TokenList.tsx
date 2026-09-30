@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import PonsTopSlide from "@/components/PonsTopSlide";
 import { fmtPct, fmtPrice, fmtUsd } from "@/lib/format";
 import type { TokenMarket } from "@/lib/types";
 
@@ -14,7 +15,7 @@ interface Props {
 
 export default function TokenList({ tokens, selected, onSelect }: Props) {
   const [query, setQuery] = useState("");
-  const [venue, setVenue] = useState<VenueFilter>("all");
+  const [venue, setVenue] = useState<VenueFilter>("uniswap-v3");
 
   const counts = useMemo(
     () => ({
@@ -57,6 +58,9 @@ export default function TokenList({ tokens, selected, onSelect }: Props) {
           ))}
         </div>
       </div>
+      {(venue === "pons" || venue === "all") && (
+        <PonsTopSlide tokens={tokens} selected={selected} onSelect={onSelect} />
+      )}
       <div className="scroll">
         {tokens.length === 0 && <div className="msg dim">Loading markets…</div>}
         {tokens.length > 0 && filtered.length === 0 && <div className="msg dim">No match for “{query}”.</div>}
@@ -76,7 +80,9 @@ export default function TokenList({ tokens, selected, onSelect }: Props) {
             <span className="px mono">${fmtPrice(t.priceUsd)}</span>
             <span className="sub">
               {t.venue === "pons" ? "Pons · " : ""}
-              {fmtUsd(t.liquidityUsd, { compact: true })} {t.venue === "pons" ? "curve" : "liq"}
+              {(t.volume24hUsd ?? 0) > 0
+                ? `${fmtUsd(t.volume24hUsd, { compact: true })} vol`
+                : `${fmtUsd(t.liquidityUsd, { compact: true })} ${t.venue === "pons" ? "curve" : "liq"}`}
             </span>
             <span className={`chg mono ${(t.priceChange24hPct ?? 0) >= 0 ? "up" : "down"}`}>
               {fmtPct(t.priceChange24hPct)}

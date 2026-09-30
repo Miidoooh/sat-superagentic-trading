@@ -374,6 +374,111 @@ textarea {
   font-weight: 650;
   letter-spacing: 0.02em;
 }
+.pons-ticker {
+  display: flex;
+  align-items: stretch;
+  margin-top: 0;
+  border-top: none;
+}
+.pons-ticker-label {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: rgba(204, 255, 0, 0.06);
+  border-right: 1px solid var(--border);
+}
+.pons-ticker-track {
+  animation-duration: 48s;
+}
+.pons-tick .muted {
+  color: var(--muted-dim);
+  font-size: 12px;
+}
+
+/* top Pons strip (markets column) */
+.pons-slide {
+  flex: none;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(204, 255, 0, 0.04), transparent 70%);
+}
+.pons-slide-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+}
+.pons-slide-title {
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.pons-slide-track {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-bright) transparent;
+}
+.pons-card {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  min-width: 118px;
+  max-width: 140px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s;
+}
+.pons-card:hover {
+  border-color: var(--border-bright);
+  background: var(--panel-2);
+}
+.pons-card.active {
+  border-color: var(--accent);
+  background: rgba(204, 255, 0, 0.08);
+  box-shadow: 0 0 0 1px rgba(204, 255, 0, 0.15);
+}
+.pons-rank {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--muted-dim);
+  margin-right: 4px;
+}
+.pons-sym {
+  display: block;
+  font-weight: 650;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pons-px {
+  display: block;
+  font-size: 12px;
+  margin-top: 2px;
+}
+.pons-meta {
+  display: block;
+  font-size: 10.5px;
+  color: var(--muted-dim);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .stats {
   display: grid;

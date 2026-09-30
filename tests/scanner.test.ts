@@ -35,7 +35,7 @@ describe("scanner criteria", () => {
 
   it("applies defaults that every data source can satisfy", () => {
     const c = ScanCriteriaSchema.parse({});
-    expect(c).toMatchObject({ timeframe: "4h", sortBy: "liquidity", limit: 10 });
+    expect(c).toMatchObject({ timeframe: "4h", sortBy: "volume24h", limit: 10 });
   });
 });
 
@@ -89,8 +89,8 @@ describe("capability gating", () => {
     expect(problems({ rsiMax: 30, timeframe: "5m" }).join()).toMatch(/timeframe/);
   });
   it("allows supported criteria", () => {
-    expect(problems({ minLiquidityUsd: 1000, rsiMax: 30, timeframe: "4h" })).toEqual([]);
-    expect(problems({ patternsAny: ["breakout_up"], timeframe: "1d" })).toEqual([]);
+    expect(problems({ minLiquidityUsd: 1000, rsiMax: 30, timeframe: "4h", sortBy: "liquidity" })).toEqual([]);
+    expect(problems({ patternsAny: ["breakout_up"], timeframe: "1d", sortBy: "liquidity" })).toEqual([]);
   });
 });
 

@@ -24,8 +24,8 @@ const LAUNCH_TTL = 10 * 60 * 1000;
 const ZERO = "0x0000000000000000000000000000000000000000";
 /** Newest curves we price. Older than this window is still listed once it is inside the lookback. */
 const MAX_CURVES = 4_000;
-const MAX_LISTED = 200;
-const MIN_LIQUIDITY_USD = 25;
+const MAX_LISTED = 48;
+const MIN_LIQUIDITY_USD = 2_500;
 
 const curveAbi = parseAbi(["function getReserves() view returns (uint256 quoteReserve, uint256 tokenReserve)"]);
 const metaAbi = parseAbi([

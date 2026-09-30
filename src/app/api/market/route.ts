@@ -4,7 +4,7 @@ import { getProvider } from "@/lib/data/provider";
 import { errorResponse } from "@/lib/http";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function GET() {
   try {

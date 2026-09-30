@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import LandingStats from "@/components/LandingStats";
 import Logo from "@/components/Logo";
+import PonsTicker from "@/components/PonsTicker";
 import Ticker from "@/components/Ticker";
 import { ROBINHOOD_MAINNET } from "@/lib/chain/constants";
 
@@ -88,6 +89,7 @@ export default function Landing() {
       </section>
 
       <Ticker />
+      <PonsTicker />
 
       <div className="wrap">
         <LandingStats />

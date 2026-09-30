@@ -6,6 +6,7 @@ import { discoverPools, readPoolStates, type PoolState } from "./pools";
 import { getFeeds, getLatestQuotes, getRoundHistories, getRoundHistory, type FeedInfo, type FeedQuote, type PricePoint } from "./chainlink";
 import { cache } from "../cache";
 import { candlesFromPricePoints } from "./candles";
+import { getPoolVolumes24h } from "../chain/poolVolume";
 import { listPonsMarkets, type QuoteBook } from "./pons";
 
 /**
@@ -15,12 +16,11 @@ import { listPonsMarkets, type QuoteBook } from "./pons";
  * - Uniswap v3 pools, read over RPC, for tradeable spot prices and TVL
  * - Chainlink feeds for reference prices and for price history
  *
- * Volume and transaction counts are deliberately absent. Deriving them needs
- * Swap logs across a day of ~100ms blocks, which a public RPC cannot serve, so
- * the provider reports them as unavailable instead of estimating.
+ * 24h swap volume is read from Uniswap v3 Swap logs in batched eth_getLogs
+ * calls (~18 slices for the full stock universe) and cached for several minutes.
  */
 
-const MARKETS_TTL = 20 * 1000;
+const MARKETS_TTL = 90 * 1000;
 const CANDLE_TTL = 3 * 60 * 1000;
 /** 24h moves change slowly; don't re-walk oracle rounds on every list refresh. */
 const CHANGE_TTL = 3 * 60 * 1000;
@@ -45,8 +45,8 @@ export class RobinhoodChainProvider implements MarketDataProvider {
    */
   readonly supportedTimeframes: readonly Timeframe[] = ["4h", "1d"];
   readonly capabilities: ProviderCapabilities = {
-    volume24h: false,
-    txCount24h: false,
+    volume24h: true,
+    txCount24h: true,
     tokenAge: false,
     priceHistory: true,
     liveTrading: true,
@@ -118,10 +118,10 @@ export class RobinhoodChainProvider implements MarketDataProvider {
         oracleUpdatedAt: quote?.updatedAt ?? null,
         oracleStale: quote?.stale ?? false,
         liquidityUsd: best.tvlUsd,
-        volume24hUsd: null,
+        volume24hUsd: 0,
         priceChange1hPct: change?.h1 ?? null,
         priceChange24hPct: change?.h24 ?? null,
-        txCount24h: null,
+        txCount24h: 0,
         createdAt: null,
         tradableNow: asset.tradableNow,
         hasPriceHistory: feeds.has(asset.symbol),
@@ -129,8 +129,27 @@ export class RobinhoodChainProvider implements MarketDataProvider {
       });
     }
 
-    markets.sort((a, b) => b.liquidityUsd - a.liquidityUsd);
+    await this.attachSwapVolume(markets);
+    markets.sort(
+      (a, b) =>
+        (b.volume24hUsd ?? 0) - (a.volume24hUsd ?? 0) || b.liquidityUsd - a.liquidityUsd,
+    );
     return markets;
+  }
+
+  private async attachSwapVolume(markets: TokenMarket[]): Promise<void> {
+    const specs = markets.map((m) => ({
+      pool: m.poolAddress,
+      token: m.token.address,
+      decimals: m.token.decimals,
+      priceUsd: m.priceUsd,
+    }));
+    const volumes = await getPoolVolumes24h(specs).catch(() => new Map());
+    for (const m of markets) {
+      const v = volumes.get(m.poolAddress.toLowerCase());
+      m.volume24hUsd = v?.volumeUsd ?? 0;
+      m.txCount24h = v?.swapCount ?? 0;
+    }
   }
 
   /**
@@ -194,7 +213,8 @@ export class RobinhoodChainProvider implements MarketDataProvider {
       console.error("Pons market load failed:", err instanceof Error ? err.message : err);
       return [] as TokenMarket[];
     });
-    return [...stocks, ...pons].sort((a, b) => b.liquidityUsd - a.liquidityUsd);
+    // Robinhood stock tokens first (by 24h volume), then launchpad curves.
+    return [...stocks, ...pons];
   }
 
   async listTokens(limit = 200): Promise<TokenMarket[]> {

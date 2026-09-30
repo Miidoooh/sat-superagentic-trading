@@ -46,8 +46,12 @@ export default function Terminal() {
       .then((d) => {
         setMarket(d);
         setTimeframe(d.timeframes.includes("4h") ? "4h" : d.timeframes[0]);
+        const stocks = d.tokens.filter((t) => t.venue !== "pons");
         setSelected(
-          d.tokens.find((t) => t.hasPriceHistory)?.token.address ?? d.tokens[0]?.token.address ?? "",
+          stocks.find((t) => t.hasPriceHistory)?.token.address ??
+            stocks[0]?.token.address ??
+            d.tokens[0]?.token.address ??
+            "",
         );
       })
       .catch((e: Error) => setLoadError(e.message));
@@ -102,9 +106,6 @@ export default function Terminal() {
           </span>
         )}
         <div className="spacer" />
-        {market && !market.capabilities.volume24h && (
-          <span className="pill">volume: per-token only</span>
-        )}
         <span className={`pill ${market?.execution.enabled ? "ok" : ""}`}>
           {market?.execution.enabled
             ? `trading on · max ${market.execution.maxTradeNative} ${market.chain.symbol}`
