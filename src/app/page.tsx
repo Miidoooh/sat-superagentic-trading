@@ -8,6 +8,21 @@ import { ROBINHOOD_MAINNET } from "@/lib/chain/constants";
 
 const FEATURES = [
   {
+    icon: "★",
+    title: "Smart Money",
+    body: "A 24-hour leaderboard of the most active and most accumulating wallets. Open any wallet to see every token it traded, follow it, and get pinged the moment it buys, sells or launches.",
+  },
+  {
+    icon: "🔔",
+    title: "Live alerts",
+    body: "Browser notifications for whale trades above your size, Pons curves about to graduate, and any move by a wallet you follow, checked against the chain every 15 seconds.",
+  },
+  {
+    icon: "▦",
+    title: "Pons charts",
+    body: "Real candles for every Pons launch, built from its own curve trades from the first block, with volume, a live trade tape and the top holders.",
+  },
+  {
     icon: "◉",
     title: "Whale Radar",
     body: "Every Stock Token swap and Pons curve trade from the last 30 minutes, priced in USD. See the biggest buys and sells as they land, net inflow and outflow per token, and live buy versus sell pressure.",
@@ -84,8 +99,8 @@ export default function Landing() {
           <span className="hero-mark">
             <Image src="/logo.png" alt="" width={176} height={176} priority />
           </span>
-          <Link className="pill accent new-pill" href="/app?view=radar">
-            <b>NEW</b> Whale Radar and Pons Trenches are live →
+          <Link className="pill accent new-pill" href="/app?view=wallets">
+            <b>NEW</b> Smart Money, live alerts and Pons charts →
           </Link>
           <h1>
             Your agent reads the <em>whole chain</em> before you read one chart

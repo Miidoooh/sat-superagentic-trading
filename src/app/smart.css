@@ -1,0 +1,299 @@
+/* ================= v1.4: Smart Money, Alerts, Pons token panel ================= */
+button.link {
+  color: inherit;
+  text-decoration: none;
+}
+button.link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* ---- smart money ---- */
+.wallet-search {
+  display: flex;
+  gap: 6px;
+}
+.wallet-search input {
+  width: 300px;
+  max-width: 50vw;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.wallet-search input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.follow-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.follow-strip .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.follow-strip .chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.wallet-grid {
+  display: grid;
+  grid-template-columns: 420px minmax(0, 1fr);
+}
+.board {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 12px;
+  border-right: 1px solid var(--border);
+}
+.board .live-sub .tfs {
+  text-transform: none;
+  letter-spacing: 0;
+}
+.board-rows {
+  overflow-y: auto;
+  min-height: 0;
+  padding-bottom: 16px;
+}
+.board-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto auto;
+  gap: 2px 10px;
+  align-items: center;
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  font-size: 13px;
+  border: 1px solid transparent;
+}
+.board-row:hover {
+  background: var(--panel);
+}
+.board-row.active {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.board-wallet .star {
+  color: var(--accent);
+  margin-right: 4px;
+}
+.board-main {
+  font-weight: 650;
+  text-align: right;
+}
+.board-net {
+  text-align: right;
+  font-size: 12px;
+  min-width: 64px;
+}
+.board-meta {
+  grid-column: 2 / -1;
+  font-size: 11px;
+}
+.wallet-detail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+.wallet-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.wallet-head a {
+  color: inherit;
+}
+.wallet-addr {
+  font-size: 13.5px;
+  font-weight: 600;
+  word-break: break-all;
+}
+.wallet-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 16px;
+  padding: 0 18px 18px;
+}
+.trade-row.compact {
+  grid-template-columns: 48px minmax(0, 1fr) 84px 96px 56px;
+  padding: 5px 8px;
+  font-size: 12.5px;
+}
+.wallet-cols .trade-row.compact {
+  grid-template-columns: 48px minmax(0, 1fr) 84px 56px;
+}
+
+/* ---- alerts ---- */
+.alerts {
+  position: relative;
+}
+.alerts-bell {
+  cursor: pointer;
+}
+.alerts-count {
+  margin-left: 2px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  font-size: 10.5px;
+}
+.alerts-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 50;
+  width: 320px;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-bright);
+  background: var(--bg-elev);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.alerts-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.alerts-note {
+  font-size: 11.5px;
+}
+.alerts-label {
+  margin-top: 4px;
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.alerts-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  cursor: pointer;
+}
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 320px;
+}
+.toast {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-bright);
+  border-left: 3px solid var(--accent);
+  background: var(--bg-elev);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  text-align: left;
+  font-size: 12.5px;
+  animation: toast-in 0.25s ease-out;
+}
+.toast span {
+  color: var(--muted);
+}
+.toast.whale {
+  border-left-color: var(--warn);
+}
+.toast.follow {
+  border-left-color: var(--green);
+}
+@keyframes toast-in {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+}
+
+/* ---- pons token panel ---- */
+.pons-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 46%;
+  border-top: 1px solid var(--border);
+}
+.pons-panel .trench-stats {
+  padding: 10px 14px;
+}
+.pons-panel .trench-stats b {
+  font-weight: 650;
+}
+.pons-tabs {
+  padding: 8px 14px 6px;
+  justify-content: space-between;
+}
+.pons-tabs .tfs {
+  text-transform: none;
+  letter-spacing: 0;
+}
+.pons-rows {
+  padding: 0 10px 12px;
+}
+.holder-row {
+  display: grid;
+  grid-template-columns: 24px 120px auto minmax(0, 1fr) 64px;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  font-size: 12.5px;
+}
+.holder-row > span:last-child {
+  text-align: right;
+}
+.holder-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+.holder-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  opacity: 0.7;
+}
+
+@media (max-width: 1100px) {
+  .wallet-grid {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+  .board-rows {
+    max-height: 50vh;
+  }
+  .wallet-cols {
+    grid-template-columns: 1fr;
+  }
+}

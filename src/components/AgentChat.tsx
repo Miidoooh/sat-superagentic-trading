@@ -17,6 +17,7 @@ interface Msg {
 const SUGGESTIONS = [
   "Where are whales buying and selling right now?",
   "Which Pons launches are about to graduate?",
+  "What are the top smart-money wallets buying today?",
   "Scan for oversold tokens with RSI under 35 and at least $250k of liquidity",
   "Run a deep analysis of NVDA and tell me the key levels",
   "Where is the pool price furthest from the Chainlink oracle right now?",

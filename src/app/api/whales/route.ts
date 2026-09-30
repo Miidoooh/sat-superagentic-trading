@@ -12,6 +12,10 @@ const QuerySchema = z.object({
   minUsd: z.coerce.number().min(0).max(10_000_000).default(1000),
   venue: z.enum(["all", "stock", "pons"]).default("all"),
   limit: z.coerce.number().int().min(1).max(200).default(120),
+  wallets: z
+    .string()
+    .optional()
+    .transform((s) => (s ? s.split(",").filter((w) => /^0x[0-9a-fA-F]{40}$/.test(w)).slice(0, 50) : [])),
 });
 
 /** Large buys and sells plus net flow across Stock Token pools and Pons curves. */

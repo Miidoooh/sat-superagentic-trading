@@ -15,6 +15,7 @@ const VENUES: { id: "all" | RadarVenue; label: string }[] = [
 interface Props {
   explorer: string;
   onOpenToken: (token: string, venue: RadarVenue) => void;
+  onWallet: (address: string) => void;
 }
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -45,7 +46,7 @@ function FlowList({ title, rows, tone, onOpen }: { title: string; rows: FlowRow[
   );
 }
 
-export default function WhaleRadar({ explorer, onOpenToken }: Props) {
+export default function WhaleRadar({ explorer, onOpenToken, onWallet }: Props) {
   const [minUsd, setMinUsd] = useState(1_000);
   const [venue, setVenue] = useState<"all" | RadarVenue>("all");
   const { data, error, loading } = usePoll<RadarSnapshot>(`/api/whales?minUsd=${minUsd}&venue=${venue}`, 12_000);
@@ -146,9 +147,9 @@ export default function WhaleRadar({ explorer, onOpenToken }: Props) {
                 <span className={`mono trade-usd ${t.side === "buy" ? "up" : "down"}`}>{fmtUsd(t.usd, { compact: t.usd >= 100_000 })}</span>
                 <span className="dim mono trade-wallet">
                   {t.trader ? (
-                    <a href={`${explorer}/address/${t.trader}`} target="_blank" rel="noreferrer noopener">
+                    <button className="link" onClick={() => onWallet(t.trader!)} title="Track this wallet">
                       {short(t.trader)}
-                    </a>
+                    </button>
                   ) : (
                     "router"
                   )}

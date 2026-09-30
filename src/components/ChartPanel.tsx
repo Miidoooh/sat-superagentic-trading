@@ -30,7 +30,9 @@ export default function ChartPanel({ candles, analysis }: Props) {
 
       // Price precision has to suit both $600 equities and sub-cent tokens.
       const minPrice = Math.min(...candles.map((c) => c.low));
-      const precision = minPrice >= 1 ? 2 : minPrice >= 0.01 ? 4 : 8;
+      // Launchpad tokens trade far below a cent; keep about four significant digits.
+      const precision =
+        minPrice >= 1 ? 2 : minPrice >= 0.01 ? 4 : minPrice > 0 ? Math.min(14, Math.ceil(-Math.log10(minPrice)) + 3) : 8;
       const series = chart.addCandlestickSeries({
         upColor: "#00d40a", downColor: "#ff4d2e", borderVisible: false,
         wickUpColor: "#00d40a", wickDownColor: "#ff4d2e",

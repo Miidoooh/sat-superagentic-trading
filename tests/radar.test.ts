@@ -72,6 +72,7 @@ describe("getLogsAdaptive", () => {
     expect(isRateLimited(new Error("fine"))).toBe(false);
     expect(isRateLimited({ message: "HTTP request failed", cause: { status: 429 } })).toBe(true);
     expect(isRateLimited({ details: "Too Many Requests" })).toBe(true);
+    expect(isRateLimited({ message: 'Request body: {"address":"0xabc429def"}', details: "query spans too many blocks" })).toBe(false);
   });
 });
 

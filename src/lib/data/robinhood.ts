@@ -8,6 +8,7 @@ import { cache } from "../cache";
 import { candlesFromPricePoints } from "./candles";
 import { getPoolVolumes24h } from "../chain/poolVolume";
 import { listPonsMarkets, type QuoteBook } from "./pons";
+import { ponsCandles, ponsMarket, PONS_TIMEFRAMES } from "./ponsToken";
 
 /**
  * Live Robinhood Chain mainnet data, assembled from three public sources:
@@ -252,6 +253,11 @@ export class RobinhoodChainProvider implements MarketDataProvider {
     const all = await this.listTokens(500);
     const byAddress = all.find((t) => t.token.address.toLowerCase() === q);
     if (byAddress) return byAddress;
+    // Any live Pons curve resolves by address, even outside the listed top curves.
+    if (/^0x[0-9a-f]{40}$/.test(q)) {
+      const pons = await ponsMarket(q, await this.quoteBook()).catch(() => null);
+      if (pons) return pons.market;
+    }
     // A launch can reuse a stock ticker. Prefer the Uniswap market for a bare symbol.
     const bySymbol = all.filter((t) => t.token.symbol.toLowerCase() === q);
     if (bySymbol.length > 0) return bySymbol.find((t) => t.venue !== "pons") ?? bySymbol[0];
@@ -262,17 +268,16 @@ export class RobinhoodChainProvider implements MarketDataProvider {
     );
   }
 
+  /** Pons curves chart from their own trades, so they support finer timeframes than oracle history. */
+  timeframesFor(token: TokenMarket): readonly Timeframe[] {
+    return token.venue === "pons" ? PONS_TIMEFRAMES : this.supportedTimeframes;
+  }
+
   async getCandles(token: TokenMarket, timeframe: Timeframe, limit = 200): Promise<Candle[]> {
-    if (!this.supportedTimeframes.includes(timeframe)) {
-      throw new Error(
-        `Robinhood Chain oracle history supports ${this.supportedTimeframes.join(" and ")} only; ${timeframe} would be interpolation`,
-      );
+    if (!this.timeframesFor(token).includes(timeframe)) {
+      throw new Error(`${token.token.symbol} supports ${this.timeframesFor(token).join(", ")} candles only`);
     }
-    if (token.venue === "pons") {
-      throw new Error(
-        `${token.token.symbol} is still on its Pons bonding curve, so there are no oracle candles. The price shown is the live curve spot.`,
-      );
-    }
+    if (token.venue === "pons") return ponsCandles(token, await this.quoteBook(), timeframe, limit);
     const feeds = await getFeeds();
     const feed = feeds.get(token.token.symbol);
     if (!feed) {

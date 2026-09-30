@@ -38,7 +38,25 @@ export function getPublicClient(): PublicClient {
   return client;
 }
 
+let logsClient: PublicClient | undefined;
+
+/**
+ * Client for large eth_getLogs reads. A busy range returns ~10k logs (several
+ * MB), so JSON-RPC batching would pack many of them into one response that
+ * outlives the timeout. Each call gets its own request and more time.
+ */
+export function getLogsClient(): PublicClient {
+  if (!logsClient) {
+    logsClient = createPublicClient({
+      chain: getChain(),
+      transport: http(getConfig().RH_RPC_URL, { timeout: 45_000, retryCount: 2, retryDelay: 600 }),
+    }) as PublicClient;
+  }
+  return logsClient;
+}
+
 /** Test helper */
 export function resetClient(): void {
   client = undefined;
+  logsClient = undefined;
 }

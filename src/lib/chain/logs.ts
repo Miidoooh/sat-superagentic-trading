@@ -25,13 +25,17 @@ export function blocksFor(seconds: number): bigint {
   return BigInt(Math.ceil(seconds / SECONDS_PER_BLOCK));
 }
 
+/** The node allows only 100,000 blocks when a log query lists several addresses. */
+export const POOL_QUERY_SPAN = 90_000n;
+
 const MAX_SPLIT_DEPTH = 8;
 const RATE_LIMIT_RETRIES = 4;
 
 export function isRateLimited(err: unknown): boolean {
   for (let e: unknown = err, i = 0; e && i < 6; e = (e as { cause?: unknown }).cause, i++) {
-    const { status, message, details } = e as { status?: number; message?: string; details?: string };
-    if (status === 429 || /429|too many requests|rate limit/i.test(`${message ?? ""} ${details ?? ""}`)) return true;
+    // viem error messages embed the request body, whose hex can contain "429", so match words only.
+    const { status, code, shortMessage, details } = e as { status?: number; code?: number; shortMessage?: string; details?: string };
+    if (status === 429 || code === 429 || /too many requests|rate limit/i.test(`${shortMessage ?? ""} ${details ?? ""}`)) return true;
   }
   return false;
 }
@@ -68,6 +72,40 @@ export async function getLogsAdaptive<T>(
   }
 }
 
+/** Run `fn` over `items` with at most `limit` in flight, preserving order. */
+export async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) {
+        const i = next++;
+        out[i] = await fn(items[i]);
+      }
+    }),
+  );
+  return out;
+}
+
+/**
+ * Wrap a log reader so wide ranges are cut into fixed spans and read a few at
+ * a time. Busy events fill the node's 10,000-log cap within a few thousand
+ * blocks, so starting narrow beats discovering the limit by halving.
+ */
+export function spanned<T>(
+  span: bigint,
+  concurrency: number,
+  fetchRange: (from: bigint, to: bigint) => Promise<T[]>,
+): (from: bigint, to: bigint) => Promise<T[]> {
+  return async (from, to) => {
+    if (to - from < span) return fetchRange(from, to);
+    const spans: { from: bigint; to: bigint }[] = [];
+    for (let a = from; a <= to; a += span) spans.push({ from: a, to: a + span - 1n > to ? to : a + span - 1n });
+    const parts = await mapPool(spans, concurrency, (s) => getLogsAdaptive(s.from, s.to, fetchRange));
+    return parts.flat();
+  };
+}
+
 export interface BlockItem {
   block: bigint;
 }
@@ -81,13 +119,16 @@ export class RollingWindow<T extends BlockItem> {
   private items: T[] = [];
   private toBlock = -1n;
 
+  /** `floorBlock` pins the window's start, e.g. to a token's launch block. */
   constructor(
     private readonly windowBlocks: bigint,
     private readonly fetchRange: (from: bigint, to: bigint) => Promise<T[]>,
+    private readonly floorBlock = 0n,
   ) {}
 
   async refresh(head: bigint): Promise<T[]> {
-    const start = head > this.windowBlocks ? head - this.windowBlocks : 0n;
+    const rolling = head > this.windowBlocks ? head - this.windowBlocks : 0n;
+    const start = rolling > this.floorBlock ? rolling : this.floorBlock > 0n ? this.floorBlock - 1n : 0n;
     const from = this.toBlock >= start ? this.toBlock + 1n : start;
     if (from <= head) {
       const fresh = await getLogsAdaptive(from, head, this.fetchRange);

@@ -3,6 +3,7 @@ import { analyzeChart } from "../analysis/analyze";
 import { getProvider } from "../data/provider";
 import { RobinhoodChainProvider } from "../data/robinhood";
 import { getTrenches } from "../radar/trenches";
+import { getLeaderboard, getWalletActivity } from "../radar/wallets";
 import { getWhaleRadar } from "../radar/whales";
 import { getOnchainSnapshot, getWalletBalances } from "../chain/onchain";
 import { ScanCriteriaSchema } from "../scanner/criteria";
@@ -70,11 +71,16 @@ function marketSummary(m: TokenMarket) {
   };
 }
 
-function pickTimeframe(requested: Timeframe | undefined): Timeframe {
+function timeframesOf(market: TokenMarket): readonly Timeframe[] {
   const p = getProvider();
-  const tf = requested ?? "1h";
-  if (!p.supportedTimeframes.includes(tf)) {
-    throw new Error(`Timeframe ${tf} unsupported by ${p.source} provider. Supported: ${p.supportedTimeframes.join(", ")}`);
+  return p instanceof RobinhoodChainProvider ? p.timeframesFor(market) : p.supportedTimeframes;
+}
+
+function pickTimeframe(market: TokenMarket, requested: Timeframe | undefined): Timeframe {
+  const allowed = timeframesOf(market);
+  const tf = requested ?? (allowed.includes("1h") ? "1h" : allowed.includes("4h") ? "4h" : allowed[0]);
+  if (!allowed.includes(tf)) {
+    throw new Error(`Timeframe ${tf} unsupported for ${market.token.symbol}. Supported: ${allowed.join(", ")}`);
   }
   return tf;
 }
@@ -119,7 +125,7 @@ const tools: ToolDef[] = [
       const args = z.object({ token: z.string().min(1).max(80), timeframe: TF.optional() }).parse(raw);
       const p = getProvider();
       const market = await resolve(args.token);
-      const tf = pickTimeframe(args.timeframe);
+      const tf = pickTimeframe(market, args.timeframe);
       const candles = await p.getCandles(market, tf, 300);
       const analysis = analyzeChart(candles, tf);
       return {
@@ -142,7 +148,7 @@ const tools: ToolDef[] = [
       const p = getProvider();
       const market = await resolve(token);
       const perTimeframe = await Promise.all(
-        p.supportedTimeframes.map(async (tf) => {
+        timeframesOf(market).map(async (tf) => {
           const candles = await p.getCandles(market, tf, 300);
           const a = analyzeChart(candles, tf);
           return { timeframe: tf, trend: a.trend.direction, rsi14: a.indicators.rsi14, patterns: a.patterns };
@@ -324,6 +330,44 @@ const tools: ToolDef[] = [
           graduated: t.graduated.slice(0, 8).map(({ symbol, token, liquidityUsd, url }) => ({ symbol, address: token, liquidityUsd: round(liquidityUsd, 0), url })),
         },
       };
+    },
+  },
+  {
+    name: "smart_money",
+    description:
+      "Wallet intelligence. Without a wallet: the top traders by volume and the biggest net buyers over the last 24 hours across stocks and Pons. With a wallet address: everything it bought and sold in the last 24 hours, per token. Use it for 'who is buying', 'what are the top wallets doing' or 'what did this wallet trade'.",
+    parameters: {
+      type: "object",
+      properties: { wallet: { type: "string", description: "Optional 0x wallet address" } },
+      additionalProperties: false,
+    },
+    async run(raw) {
+      const { wallet } = z.object({ wallet: z.string().regex(/^0x[0-9a-fA-F]{40}$/).optional() }).parse(raw ?? {});
+      const p = getProvider();
+      if (!(p instanceof RobinhoodChainProvider)) {
+        return { result: { error: `Wallet tracking needs live chain data; the ${p.source} source has none.` } };
+      }
+      if (wallet) {
+        const a = await getWalletActivity(p, wallet);
+        return {
+          result: {
+            wallet: a.wallet,
+            windowHours: a.windowHours,
+            totals: { ...a.totals, buyUsd: round(a.totals.buyUsd, 0), sellUsd: round(a.totals.sellUsd, 0), netUsd: round(a.totals.netUsd, 0) },
+            positions: a.positions.slice(0, 15).map((x) => ({ ...x, buyUsd: round(x.buyUsd, 0), sellUsd: round(x.sellUsd, 0), netUsd: round(x.netUsd, 0) })),
+          },
+        };
+      }
+      const board = await getLeaderboard(p);
+      const slim = (r: (typeof board.byVolume)[number]) => ({
+        wallet: r.wallet,
+        volumeUsd: round(r.volumeUsd, 0),
+        netUsd: round(r.netUsd, 0),
+        trades: r.trades,
+        tokens: r.tokens,
+        mostTraded: r.topSymbol,
+      });
+      return { result: { window: board.window, byVolume: board.byVolume.slice(0, 10).map(slim), byNetBuy: board.byNetBuy.slice(0, 10).map(slim) } };
     },
   },
   {

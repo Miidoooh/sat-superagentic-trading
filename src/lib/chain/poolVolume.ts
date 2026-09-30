@@ -1,6 +1,6 @@
 import { decodeEventLog, formatUnits, parseAbiItem } from "viem";
 import { cache } from "../cache";
-import { getPublicClient } from "./client";
+import { getLogsClient } from "./client";
 
 const SWAP_EVENT = parseAbiItem(
   "event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)",
@@ -41,7 +41,7 @@ export async function getPoolVolumes24h(specs: PoolVolumeSpec[]): Promise<Map<st
 }
 
 async function readVolumes(specs: PoolVolumeSpec[]): Promise<Map<string, PoolVolume24h>> {
-  const client = getPublicClient();
+  const client = getLogsClient();
   const latest = await client.getBlockNumber();
   const span = BigInt(24 * BLOCKS_PER_HOUR);
   const fromBlock = latest > span ? latest - span : 0n;

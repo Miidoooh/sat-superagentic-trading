@@ -1,7 +1,7 @@
 import { getAddress, parseAbi, parseAbiItem } from "viem";
 import { PONS_V2_FACTORY, USDG } from "../chain/constants";
-import { getPublicClient } from "../chain/client";
-import { blockClock, getLogsAdaptive, RollingWindow } from "../chain/logs";
+import { getLogsClient, getPublicClient } from "../chain/client";
+import { blockClock, getLogsAdaptive, mapPool, RollingWindow } from "../chain/logs";
 import { cache } from "../cache";
 import type { TokenMarket } from "../types";
 import { getTokenMeta } from "./tokenMeta";
@@ -29,6 +29,8 @@ const LOOKBACK_BLOCKS = 1_500_000n;
 const LOG_SPAN = 350_000n;
 const CATALOG_TTL = 10 * 60 * 1000;
 const CATALOG_WAIT_MS = 6 * 1000;
+/** Just under the node's 10M-block limit on a single log query (~11 days). */
+const FIND_LAUNCH_BLOCKS = 9_900_000n;
 /** ~1 hour of launches, refreshed incrementally so new tokens appear within seconds. */
 const RECENT_BLOCKS = 36_000n;
 const RECENT_TTL = 10 * 1000;
@@ -110,22 +112,8 @@ export function quoteOf(pairToken: string, book: QuoteBook): QuoteInfo | null {
   return book.byAddress.get(pair) ?? null;
 }
 
-async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, async () => {
-      while (next < items.length) {
-        const i = next++;
-        out[i] = await fn(items[i]);
-      }
-    }),
-  );
-  return out;
-}
-
 async function readLaunches(from: bigint, to: bigint): Promise<PonsLaunch[]> {
-  const logs = await getPublicClient().getLogs({
+  const logs = await getLogsClient().getLogs({
     address: getAddress(PONS_V2_FACTORY),
     event: TOKEN_LAUNCHED,
     fromBlock: from,
@@ -191,6 +179,27 @@ export async function listLaunches(): Promise<PonsLaunch[]> {
     out.push(launch);
   }
   return out.sort((a, b) => (a.block === b.block ? 0 : a.block > b.block ? -1 : 1));
+}
+
+/** The launch record for one token, even if it predates the cached catalog. */
+export async function findLaunch(token: string): Promise<PonsLaunch | null> {
+  const key = token.toLowerCase();
+  const listed = (await listLaunches().catch(() => [] as PonsLaunch[])).find((l) => l.token.toLowerCase() === key);
+  if (listed) return listed;
+  return cache.get(`pons:launch:${key}`, CATALOG_TTL, async () => {
+    const { head } = await blockClock();
+    const logs = await getLogsClient().getLogs({
+      address: getAddress(PONS_V2_FACTORY),
+      event: TOKEN_LAUNCHED,
+      args: { token: getAddress(token) },
+      fromBlock: head > FIND_LAUNCH_BLOCKS ? head - FIND_LAUNCH_BLOCKS : 0n,
+      toBlock: head,
+    });
+    const log = logs[0];
+    const { curve, deployer, pairToken, graduationThreshold } = log?.args ?? {};
+    if (!log || !curve || !deployer || !pairToken || graduationThreshold === undefined) return null;
+    return { token: getAddress(token), curve, deployer, pairToken, threshold: graduationThreshold, block: log.blockNumber ?? 0n };
+  });
 }
 
 /** Read live curve state. Graduated curves revert and are omitted. */
@@ -292,7 +301,7 @@ export interface PonsGraduation {
 }
 
 const graduationWindow = new RollingWindow<PonsGraduation>(GRADUATION_BLOCKS, async (from, to) => {
-  const logs = await getPublicClient().getLogs({
+  const logs = await getLogsClient().getLogs({
     address: getAddress(PONS_V2_FACTORY),
     event: POOL_GRADUATED,
     fromBlock: from,

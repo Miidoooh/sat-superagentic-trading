@@ -3,16 +3,20 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AgentChat from "@/components/AgentChat";
+import AlertsCenter from "@/components/AlertsCenter";
 import ChartPanel from "@/components/ChartPanel";
 import Logo from "@/components/Logo";
+import PonsTokenPanel from "@/components/PonsTokenPanel";
 import PonsTrenches from "@/components/PonsTrenches";
 import TokenList from "@/components/TokenList";
 import type { ChainInfo } from "@/components/TradeCard";
+import WalletTracker from "@/components/WalletTracker";
 import WhaleRadar from "@/components/WhaleRadar";
 import { ponsTokenUrl, ROBINHOOD_MAINNET } from "@/lib/chain/constants";
 import { fmtAge, fmtNum, fmtPct, fmtPrice, fmtUsd } from "@/lib/format";
 import type { Candle, ChartAnalysis, ProviderCapabilities, Timeframe, TokenMarket } from "@/lib/types";
 import "../live.css";
+import "../smart.css";
 
 interface MarketResponse {
   source: string;
@@ -30,17 +34,24 @@ interface CandleResponse {
 }
 
 const ALL_TF: Timeframe[] = ["5m", "15m", "1h", "4h", "1d"];
+/** Pons curves chart from their own trades, so they get finer timeframes than oracle history. */
+const PONS_TF: Timeframe[] = ["5m", "15m", "1h", "4h"];
+const isAddress = (s: string) => /^0x[0-9a-fA-F]{40}$/.test(s);
 
-type View = "terminal" | "radar" | "trenches";
+type View = "terminal" | "radar" | "trenches" | "wallets";
 const VIEWS: { id: View; label: string; isNew?: boolean }[] = [
   { id: "terminal", label: "Terminal" },
-  { id: "radar", label: "Whale Radar", isNew: true },
-  { id: "trenches", label: "Pons Trenches", isNew: true },
+  { id: "radar", label: "Whale Radar" },
+  { id: "trenches", label: "Pons Trenches" },
+  { id: "wallets", label: "Smart Money", isNew: true },
 ];
 
 export default function Terminal() {
   const [view, setView] = useState<View>("terminal");
+  const [wallet, setWallet] = useState("");
   const [market, setMarket] = useState<MarketResponse | null>(null);
+  /** Pons launches opened from a live view that are not in the market list. */
+  const [extraTokens, setExtraTokens] = useState<TokenMarket[]>([]);
   const [selected, setSelected] = useState("");
   const [timeframe, setTimeframe] = useState<Timeframe>("4h");
   const [chart, setChart] = useState<CandleResponse | null>(null);
@@ -49,30 +60,56 @@ export default function Terminal() {
   const [chartLoading, setChartLoading] = useState(false);
 
   useEffect(() => {
-    const v = new URLSearchParams(window.location.search).get("view");
-    if (v === "radar" || v === "trenches") setView(v);
+    const params = new URLSearchParams(window.location.search);
+    const v = params.get("view");
+    if (v === "radar" || v === "trenches" || v === "wallets") setView(v);
+    const w = params.get("wallet");
+    if (w && isAddress(w)) setWallet(w);
   }, []);
 
-  const switchView = useCallback((next: View) => {
+  const switchView = useCallback((next: View, walletParam?: string) => {
     setView(next);
     const url = new URL(window.location.href);
     if (next === "terminal") url.searchParams.delete("view");
     else url.searchParams.set("view", next);
+    if (walletParam) url.searchParams.set("wallet", walletParam);
+    else if (next !== "wallets") url.searchParams.delete("wallet");
     window.history.replaceState(null, "", url);
   }, []);
 
-  /** Open a token from a live view: in the terminal when it is listed, otherwise on Pons. */
+  const openWallet = useCallback(
+    (address: string) => {
+      if (!isAddress(address)) return;
+      setWallet(address);
+      switchView("wallets", address);
+    },
+    [switchView],
+  );
+
+  const allTokens = useMemo(() => [...(market?.tokens ?? []), ...extraTokens], [market, extraTokens]);
+
+  /** Open a token from a live view in the terminal. Unlisted Pons launches are looked up on chain first. */
   const openToken = useCallback(
-    (address: string, fallbackUrl?: string) => {
-      const listed = market?.tokens.find((t) => t.token.address.toLowerCase() === address.toLowerCase());
+    async (address: string, fallbackUrl?: string) => {
+      const listed = allTokens.find((t) => t.token.address.toLowerCase() === address.toLowerCase());
       if (listed) {
         setSelected(listed.token.address);
         switchView("terminal");
-      } else if (fallbackUrl) {
-        window.open(fallbackUrl, "_blank", "noopener,noreferrer");
+        return;
+      }
+      try {
+        const r = await fetch(`/api/pons/token?address=${address}`);
+        const d = await r.json();
+        if (!r.ok || "error" in d) throw new Error(d.error);
+        const m = d.market as TokenMarket;
+        setExtraTokens((prev) => [...prev.filter((t) => t.token.address !== m.token.address), m]);
+        setSelected(m.token.address);
+        switchView("terminal");
+      } catch {
+        if (fallbackUrl) window.open(fallbackUrl, "_blank", "noopener,noreferrer");
       }
     },
-    [market, switchView],
+    [allTokens, switchView],
   );
 
   useEffect(() => {
@@ -113,22 +150,24 @@ export default function Terminal() {
     }
   }, []);
 
-  const current = useMemo(
-    () => market?.tokens.find((t) => t.token.address === selected) ?? null,
-    [market, selected],
-  );
+  const current = useMemo(() => allTokens.find((t) => t.token.address === selected) ?? null, [allTokens, selected]);
+  const isPons = current?.venue === "pons";
+  const timeframes = isPons ? PONS_TF : (market?.timeframes ?? []);
 
   useEffect(() => {
-    if (!selected) return;
-    if (current?.venue === "pons") {
-      setChart(null);
-      setChartError("");
-      setChartLoading(false);
+    if (!selected || !current) return;
+    if (!timeframes.includes(timeframe)) {
+      setTimeframe(isPons ? "15m" : timeframes.includes("4h") ? "4h" : timeframes[0]);
       return;
     }
     void loadChart(selected, timeframe);
-  }, [selected, timeframe, loadChart, current?.venue]);
+    // Curve charts move with every trade; stock oracle history does not.
+    if (!isPons) return;
+    const t = setInterval(() => void loadChart(selected, timeframe), 20_000);
+    return () => clearInterval(t);
+  }, [selected, timeframe, loadChart, current, isPons, timeframes]);
   const analysis = chart?.analysis ?? null;
+  const explorer = market?.chain.explorer ?? ROBINHOOD_MAINNET.explorerUrl;
 
   return (
     <div className="app">
@@ -153,6 +192,7 @@ export default function Terminal() {
           ))}
         </div>
         <div className="spacer" />
+        <AlertsCenter onOpenToken={(token, url) => void openToken(token, url)} onOpenWallet={openWallet} />
         <span className={`pill ${market?.execution.enabled ? "ok" : ""}`}>
           {market?.execution.enabled
             ? `trading on · max ${market.execution.maxTradeNative} ${market.chain.symbol}`
@@ -173,14 +213,18 @@ export default function Terminal() {
 
       {view === "radar" && (
         <WhaleRadar
-          explorer={market?.chain.explorer ?? ROBINHOOD_MAINNET.explorerUrl}
-          onOpenToken={(token, venue) => openToken(token, venue === "pons" ? ponsTokenUrl(token) : undefined)}
+          explorer={explorer}
+          onOpenToken={(token, venue) => void openToken(token, venue === "pons" ? ponsTokenUrl(token) : undefined)}
+          onWallet={openWallet}
         />
       )}
-      {view === "trenches" && (
-        <PonsTrenches
-          explorer={market?.chain.explorer ?? ROBINHOOD_MAINNET.explorerUrl}
-          onOpenToken={(token, url) => openToken(token, url)}
+      {view === "trenches" && <PonsTrenches explorer={explorer} onOpenToken={(token, url) => void openToken(token, url)} />}
+      {view === "wallets" && (
+        <WalletTracker
+          explorer={explorer}
+          wallet={wallet}
+          onWallet={openWallet}
+          onOpenToken={(token, venue) => void openToken(token, venue === "pons" ? ponsTokenUrl(token) : undefined)}
         />
       )}
 
@@ -210,10 +254,12 @@ export default function Terminal() {
                 <button
                   key={tf}
                   className={`tf ${tf === timeframe ? "active" : ""}`}
-                  disabled={!!market && !market.timeframes.includes(tf)}
+                  disabled={!!market && !timeframes.includes(tf)}
                   title={
-                    market && !market.timeframes.includes(tf)
-                      ? "Oracle price history is not dense enough for this timeframe"
+                    market && !timeframes.includes(tf)
+                      ? isPons
+                        ? "Curve launches are too young for daily candles"
+                        : "Oracle price history is not dense enough for this timeframe"
                       : undefined
                   }
                   onClick={() => setTimeframe(tf)}
@@ -268,36 +314,23 @@ export default function Terminal() {
 
           {chartError && <div className="banner">{chartError}</div>}
 
-          {current?.venue === "pons" ? (
-            <div className="chart-empty">
-              <div>
-                <strong>{current.token.symbol}</strong> is trading on a Pons bonding curve
-                {current.quoteSymbol ? ` quoted in ${current.quoteSymbol}` : ""}.
-                <br />
-                Spot ${fmtPrice(current.priceUsd)}
-                {current.curve &&
-                  ` · ${fmtUsd(current.curve.raisedUsd, { compact: true })} raised of ${fmtUsd(current.curve.thresholdUsd, { compact: true })}`}
-                {current.curve && (
-                  <div className="curve-progress hot" style={{ margin: "12px auto", maxWidth: 320 }}>
-                    <span style={{ width: `${Math.min(100, Math.max(2, current.curve.progressPct))}%` }} />
-                  </div>
-                )}
-                {current.curve && <div className="mono">{current.curve.progressPct.toFixed(1)}% to graduation</div>}
-                Candle history starts after the launch graduates to Uniswap.{" "}
-                <a className="accent-link" href={ponsTokenUrl(current.token.address)} target="_blank" rel="noreferrer noopener">
-                  Trade on Pons ↗
-                </a>
-              </div>
-            </div>
-          ) : chart && chart.candles.length > 0 ? (
+          {chart && chart.candles.length > 0 ? (
             <ChartPanel candles={chart.candles} analysis={analysis} />
           ) : (
             <div className="chart-empty">
-              {chartLoading ? "Loading price history…" : chartError ? "No chart available" : "Select a token"}
+              {chartLoading
+                ? isPons
+                  ? "Building candles from curve trades…"
+                  : "Loading price history…"
+                : chartError
+                  ? "No chart available"
+                  : "Select a token"}
             </div>
           )}
 
-          {analysis && (
+          {isPons && current && <PonsTokenPanel key={current.token.address} token={current.token.address} explorer={explorer} onWallet={openWallet} />}
+
+          {analysis && !isPons && (
             <div className="insights">
               <div className="summary">{analysis.summary}</div>
               <div className="ind-grid">
