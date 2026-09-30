@@ -46,7 +46,9 @@ export default function Terminal() {
       .then((d) => {
         setMarket(d);
         setTimeframe(d.timeframes.includes("4h") ? "4h" : d.timeframes[0]);
-        setSelected(d.tokens.find((t) => t.hasPriceHistory)?.token.symbol ?? d.tokens[0]?.token.symbol ?? "");
+        setSelected(
+          d.tokens.find((t) => t.hasPriceHistory)?.token.address ?? d.tokens[0]?.token.address ?? "",
+        );
       })
       .catch((e: Error) => setLoadError(e.message));
   }, []);
@@ -68,14 +70,21 @@ export default function Terminal() {
     }
   }, []);
 
-  useEffect(() => {
-    void loadChart(selected, timeframe);
-  }, [selected, timeframe, loadChart]);
-
   const current = useMemo(
-    () => market?.tokens.find((t) => t.token.symbol === selected) ?? null,
+    () => market?.tokens.find((t) => t.token.address === selected) ?? null,
     [market, selected],
   );
+
+  useEffect(() => {
+    if (!selected) return;
+    if (current?.venue === "pons") {
+      setChart(null);
+      setChartError("");
+      setChartLoading(false);
+      return;
+    }
+    void loadChart(selected, timeframe);
+  }, [selected, timeframe, loadChart, current?.venue]);
   const analysis = chart?.analysis ?? null;
 
   return (
@@ -198,7 +207,18 @@ export default function Terminal() {
 
           {chartError && <div className="banner">{chartError}</div>}
 
-          {chart && chart.candles.length > 0 ? (
+          {current?.venue === "pons" ? (
+            <div className="chart-empty">
+              <div>
+                <strong>{current.token.symbol}</strong> is trading on a Pons bonding curve
+                {current.quoteSymbol ? ` quoted in ${current.quoteSymbol}` : ""}.
+                <br />
+                Spot ${fmtPrice(current.priceUsd)} · curve depth {fmtUsd(current.liquidityUsd, { compact: true })}.
+                <br />
+                Candle history starts after the launch graduates to Uniswap.
+              </div>
+            </div>
+          ) : chart && chart.candles.length > 0 ? (
             <ChartPanel candles={chart.candles} analysis={analysis} />
           ) : (
             <div className="chart-empty">
@@ -253,14 +273,16 @@ export default function Terminal() {
         <section className="col">
           <div className="col-head">
             Agent
-            <div className="spacer" />
-            {market && !market.agentEnabled && <span className="pill warn">offline</span>}
           </div>
           <AgentChat
             enabled={market?.agentEnabled ?? false}
             chain={market?.chain ?? null}
             executionEnabled={market?.execution.enabled ?? false}
-            onSelectToken={setSelected}
+            onSelectToken={(symbol) => {
+              const matches = market?.tokens.filter((t) => t.token.symbol.toLowerCase() === symbol.toLowerCase()) ?? [];
+              const pick = matches.find((t) => t.venue !== "pons") ?? matches[0];
+              if (pick) setSelected(pick.token.address);
+            }}
           />
         </section>
       </div>

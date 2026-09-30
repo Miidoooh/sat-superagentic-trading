@@ -83,7 +83,6 @@ export default function AgentChat({ enabled, chain, executionEnabled, onSelectTo
               I read Robinhood Chain directly: Uniswap v3 pools for tradeable prices, Chainlink feeds for
               reference prices and history, and event logs for on-chain flow. Ask me to analyse a chart, scan
               the market against your criteria, or draft a trade for you to approve.
-              {!enabled && "\n\nThe agent is offline. Set OPENAI_API_KEY on the server to enable it."}
             </div>
             <div className="suggestions">
               {SUGGESTIONS.map((s) => (
@@ -140,7 +139,7 @@ export default function AgentChat({ enabled, chain, executionEnabled, onSelectTo
         <textarea
           rows={2}
           value={input}
-          placeholder={enabled ? "Ask SAT to scan, analyse, or propose a trade…" : "Agent offline"}
+          placeholder="Ask SAT to scan, analyse, or propose a trade…"
           disabled={!enabled}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {

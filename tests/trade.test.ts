@@ -27,6 +27,7 @@ const market: TokenMarket = {
   createdAt: 0,
   tradableNow: true,
   hasPriceHistory: true,
+  venue: "uniswap-v3",
 };
 
 beforeEach(() => {

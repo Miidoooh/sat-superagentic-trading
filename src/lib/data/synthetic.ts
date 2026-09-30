@@ -142,6 +142,7 @@ export class SyntheticProvider implements MarketDataProvider {
         createdAt: Math.floor(Date.now() / 1000) - spec.ageDays * 86400,
         tradableNow: true,
         hasPriceHistory: true,
+        venue: "uniswap-v3",
       };
     });
   }

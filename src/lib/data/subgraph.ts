@@ -152,6 +152,7 @@ export class SubgraphProvider implements MarketDataProvider {
       createdAt: Number(pool.createdAtTimestamp),
       tradableNow: null,
       hasPriceHistory: true,
+      venue: "uniswap-v3",
     };
   }
 

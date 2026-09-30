@@ -3,9 +3,10 @@ import { TIMEFRAME_SECONDS } from "../types";
 import type { MarketDataProvider } from "./provider";
 import { getStockAssets, type StockAsset } from "./assets";
 import { discoverPools, readPoolStates, type PoolState } from "./pools";
-import { getFeeds, getLatestQuotes, getRoundHistory, type FeedInfo, type PricePoint } from "./chainlink";
+import { getFeeds, getLatestQuotes, getRoundHistories, getRoundHistory, type FeedInfo, type FeedQuote, type PricePoint } from "./chainlink";
 import { cache } from "../cache";
 import { candlesFromPricePoints } from "./candles";
+import { listPonsMarkets, type QuoteBook } from "./pons";
 
 /**
  * Live Robinhood Chain mainnet data, assembled from three public sources:
@@ -19,8 +20,11 @@ import { candlesFromPricePoints } from "./candles";
  * the provider reports them as unavailable instead of estimating.
  */
 
-const MARKETS_TTL = 30 * 1000;
+const MARKETS_TTL = 20 * 1000;
 const CANDLE_TTL = 3 * 60 * 1000;
+/** 24h moves change slowly; don't re-walk oracle rounds on every list refresh. */
+const CHANGE_TTL = 3 * 60 * 1000;
+const PONS_TTL = 45 * 1000;
 /** Oracle rounds to pull for the market list, enough to span >24h of updates. */
 const RECENT_ROUNDS = 28;
 /** Oracle rounds to pull for a full chart. */
@@ -85,7 +89,7 @@ export class RobinhoodChainProvider implements MarketDataProvider {
       if (!current || tvlUsd > current.tvlUsd) bestByToken.set(state.token, { state, tvlUsd, priceUsd });
     }
 
-    const changes = await this.recentChanges(relevantFeeds);
+    const changes = await this.recentChanges(relevantFeeds, quotes);
 
     const markets: TokenMarket[] = [];
     for (const asset of assets) {
@@ -121,6 +125,7 @@ export class RobinhoodChainProvider implements MarketDataProvider {
         createdAt: null,
         tradableNow: asset.tradableNow,
         hasPriceHistory: feeds.has(asset.symbol),
+        venue: "uniswap-v3",
       });
     }
 
@@ -132,28 +137,29 @@ export class RobinhoodChainProvider implements MarketDataProvider {
    * Derive 1h and 24h moves from a short window of oracle rounds. Rounds are
    * irregular, so we take the newest round at or before each cutoff.
    */
-  private async recentChanges(feeds: FeedInfo[]): Promise<Map<string, { h1: number | null; h24: number | null }>> {
-    const out = new Map<string, { h1: number | null; h24: number | null }>();
-    const settled = await Promise.allSettled(
-      feeds.map(async (feed) => ({
-        symbol: feed.symbol,
-        points: await cache.get(`rounds:${feed.proxyAddress}:${RECENT_ROUNDS}`, MARKETS_TTL, () =>
-          getRoundHistory(feed, RECENT_ROUNDS),
-        ),
-      })),
-    );
+  private async recentChanges(
+    feeds: FeedInfo[],
+    quotes: Map<string, FeedQuote>,
+  ): Promise<Map<string, { h1: number | null; h24: number | null }>> {
+    const specs = feeds.flatMap((feed) => {
+      const latest = quotes.get(feed.symbol);
+      return latest ? [{ symbol: feed.symbol, feed, latest }] : [];
+    });
+    const key = `rounds:batch:${specs.map((s) => s.feed.proxyAddress).join(",")}:${RECENT_ROUNDS}`;
+    const histories = await cache.get(key, CHANGE_TTL, () => getRoundHistories(specs, RECENT_ROUNDS));
+
     const now = Math.floor(Date.now() / 1000);
-    for (const r of settled) {
-      if (r.status !== "fulfilled" || r.value.points.length < 2) continue;
-      const points = r.value.points;
+    const out = new Map<string, { h1: number | null; h24: number | null }>();
+    for (const spec of specs) {
+      const points = histories.get(spec.symbol) ?? [];
+      if (points.length < 2) continue;
       const latest = points[points.length - 1];
       const priceAt = (cutoff: number): number | null => {
         for (let i = points.length - 1; i >= 0; i--) if (points[i].time <= cutoff) return points[i].price;
         return null;
       };
-      const pct = (then: number | null) =>
-        then && then > 0 ? ((latest.price - then) / then) * 100 : null;
-      out.set(r.value.symbol, { h1: pct(priceAt(now - 3600)), h24: pct(priceAt(now - 86_400)) });
+      const pct = (then: number | null) => (then && then > 0 ? ((latest.price - then) / then) * 100 : null);
+      out.set(spec.symbol, { h1: pct(priceAt(now - 3600)), h24: pct(priceAt(now - 86_400)) });
     }
     return out;
   }
@@ -170,17 +176,44 @@ export class RobinhoodChainProvider implements MarketDataProvider {
     });
   }
 
+  private async withPons(stocks: TokenMarket[]): Promise<TokenMarket[]> {
+    const book: QuoteBook = { ethUsd: 0, byAddress: new Map() };
+    try {
+      book.ethUsd = await this.nativeUsd();
+    } catch {
+      book.ethUsd = 0;
+    }
+    for (const market of stocks) {
+      book.byAddress.set(market.token.address.toLowerCase(), {
+        usd: market.priceUsd,
+        decimals: market.token.decimals,
+        symbol: market.token.symbol,
+      });
+    }
+    const pons = await cache.get("rh:pons", PONS_TTL, () => listPonsMarkets(book)).catch((err: unknown) => {
+      console.error("Pons market load failed:", err instanceof Error ? err.message : err);
+      return [] as TokenMarket[];
+    });
+    return [...stocks, ...pons].sort((a, b) => b.liquidityUsd - a.liquidityUsd);
+  }
+
   async listTokens(limit = 200): Promise<TokenMarket[]> {
-    const markets = await cache.get("rh:markets", MARKETS_TTL, () => this.build());
+    const markets = await cache.get("rh:markets", MARKETS_TTL, async () => {
+      const stocks = await this.build();
+      return this.withPons(stocks);
+    });
     return markets.slice(0, limit);
   }
 
   async findToken(query: string): Promise<TokenMarket | null> {
     const q = query.trim().toLowerCase();
     const all = await this.listTokens(500);
+    const byAddress = all.find((t) => t.token.address.toLowerCase() === q);
+    if (byAddress) return byAddress;
+    // A launch can reuse a stock ticker. Prefer the Uniswap market for a bare symbol.
+    const bySymbol = all.filter((t) => t.token.symbol.toLowerCase() === q);
+    if (bySymbol.length > 0) return bySymbol.find((t) => t.venue !== "pons") ?? bySymbol[0];
     return (
-      all.find((t) => t.token.address.toLowerCase() === q) ??
-      all.find((t) => t.token.symbol.toLowerCase() === q) ??
       all.find((t) => t.token.name.toLowerCase() === q) ??
       all.find((t) => t.token.name.toLowerCase().includes(q)) ??
       null
@@ -191,6 +224,11 @@ export class RobinhoodChainProvider implements MarketDataProvider {
     if (!this.supportedTimeframes.includes(timeframe)) {
       throw new Error(
         `Robinhood Chain oracle history supports ${this.supportedTimeframes.join(" and ")} only; ${timeframe} would be interpolation`,
+      );
+    }
+    if (token.venue === "pons") {
+      throw new Error(
+        `${token.token.symbol} is still on its Pons bonding curve, so there are no oracle candles. The price shown is the live curve spot.`,
       );
     }
     const feeds = await getFeeds();

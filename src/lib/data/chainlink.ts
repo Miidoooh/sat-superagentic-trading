@@ -198,3 +198,61 @@ export async function getRoundHistory(feed: FeedInfo, count: number): Promise<Pr
   points.sort((a, b) => a.time - b.time);
   return sanitizePricePoints(points);
 }
+
+/**
+ * Same history as getRoundHistory, but for every feed in one multicall.
+ * The market list used to fan this out as one RPC per ticker, which is what
+ * made the public endpoint stall.
+ */
+export async function getRoundHistories(
+  specs: { symbol: string; feed: FeedInfo; latest: FeedQuote }[],
+  count: number,
+): Promise<Map<string, PricePoint[]>> {
+  const client = getPublicClient();
+  const out = new Map<string, PricePoint[]>();
+  const jobs: { symbol: string; proxy: `0x${string}`; decimals: number; id: bigint }[] = [];
+
+  for (const spec of specs) {
+    out.set(spec.symbol, [{ time: spec.latest.updatedAt, price: spec.latest.price }]);
+    const { phase, round } = splitRoundId(spec.latest.roundId);
+    const oldest = round > BigInt(count) ? round - BigInt(count) : 1n;
+    for (let r = round - 1n; r >= oldest; r--) {
+      jobs.push({
+        symbol: spec.symbol,
+        proxy: spec.feed.proxyAddress,
+        decimals: spec.feed.decimals,
+        id: joinRoundId(phase, r),
+      });
+    }
+  }
+
+  const CHUNK = 400;
+  for (let i = 0; i < jobs.length; i += CHUNK) {
+    const slice = jobs.slice(i, i + CHUNK);
+    const results = await client.multicall({
+      contracts: slice.map((job) => ({
+        address: job.proxy,
+        abi: aggregatorV3Abi,
+        functionName: "getRoundData" as const,
+        args: [job.id] as const,
+      })),
+      allowFailure: true,
+    });
+    results.forEach((result, j) => {
+      if (result.status !== "success") return;
+      const [, answer, , updatedAt] = result.result as readonly [bigint, bigint, bigint, bigint, bigint];
+      if (answer <= 0n || updatedAt === 0n) return;
+      const job = slice[j];
+      out.get(job.symbol)?.push({
+        time: Number(updatedAt),
+        price: Number(answer) / 10 ** job.decimals,
+      });
+    });
+  }
+
+  for (const [symbol, points] of out) {
+    points.sort((a, b) => a.time - b.time);
+    out.set(symbol, sanitizePricePoints(points));
+  }
+  return out;
+}

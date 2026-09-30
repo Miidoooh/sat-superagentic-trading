@@ -56,6 +56,8 @@ export interface TokenMarket {
   /** True when Robinhood reports the asset as tradable in the current session */
   tradableNow: boolean | null;
   hasPriceHistory: boolean;
+  /** Where the spot price was read. Pons launches trade on a bonding curve until they graduate. */
+  venue: "uniswap-v3" | "pons";
 }
 
 export type Direction = "bullish" | "bearish" | "neutral";

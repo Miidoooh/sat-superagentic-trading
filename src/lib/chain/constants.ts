@@ -40,6 +40,13 @@ export const UNISWAP_V3 = {
 /** L2 WETH on Robinhood Chain. This is what SwapRouter02.WETH9() returns. */
 export const WRAPPED_NATIVE = "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73" as const;
 
+/**
+ * Pons V2 launch factory on Robinhood Chain. Each launch gets its own bonding
+ * curve; the factory's TokenLaunched logs are the token list.
+ * Verified on-chain 2026-09-30 (bytecode present at this address).
+ */
+export const PONS_V2_FACTORY = "0x7eD598BcEf8bd9Edd8C97A195C6d13f40801EC7e" as const;
+
 /** Global Dollar, the USD stablecoin most Stock Token pools quote against. 6 decimals. */
 export const USDG = { address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", decimals: 6, symbol: "USDG" } as const;
 

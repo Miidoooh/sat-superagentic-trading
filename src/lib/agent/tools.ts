@@ -62,6 +62,7 @@ function marketSummary(m: TokenMarket) {
     ageDays: m.createdAt === null ? null : Math.round((Date.now() / 1000 - m.createdAt) / 86400),
     tradableNow: m.tradableNow,
     hasPriceHistory: m.hasPriceHistory,
+    venue: m.venue,
   };
 }
 

@@ -24,6 +24,7 @@ const market = (over: Partial<TokenMarket> = {}): TokenMarket => ({
   createdAt: now - 10 * 86400,
   tradableNow: true,
   hasPriceHistory: true,
+  venue: "uniswap-v3",
   ...over,
 });
 

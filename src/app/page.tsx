@@ -44,7 +44,7 @@ export default function Landing() {
       <nav className="lnav">
         <div className="brand">
           <Logo />
-          SUPERAGENTIC TRADING
+          Strategic Agentic Trading
         </div>
         <div className="spacer" />
         <span className="pill ok">
