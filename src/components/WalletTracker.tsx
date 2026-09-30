@@ -73,7 +73,7 @@ function Detail({ address, explorer, onOpenToken }: { address: `0x${string}`; ex
         <FollowButton address={address} />
       </div>
 
-      {loading && !data && <div className="dim live-empty">Reading this wallet&apos;s last 24 hours of trades…</div>}
+      {loading && !data && <div className="dim live-empty is-loading">Reading this wallet&apos;s last 24 hours of trades…</div>}
       {error && !data && <div className="banner error">{error}</div>}
       {data && (
         <>

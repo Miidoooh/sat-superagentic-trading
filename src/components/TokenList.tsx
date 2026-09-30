@@ -62,7 +62,14 @@ export default function TokenList({ tokens, selected, onSelect }: Props) {
         <PonsTopSlide tokens={tokens} selected={selected} onSelect={onSelect} />
       )}
       <div className="scroll">
-        {tokens.length === 0 && <div className="msg dim">Loading markets…</div>}
+        {tokens.length === 0 &&
+          Array.from({ length: 9 }, (_, i) => (
+            <div key={i} className="token-row skeleton-row" aria-hidden="true">
+              <span className="skeleton skel-logo" />
+              <span className="skeleton skel-line" />
+              <span className="skeleton skel-line short" />
+            </div>
+          ))}
         {tokens.length > 0 && filtered.length === 0 && <div className="msg dim">No match for “{query}”.</div>}
         {filtered.map((t) => (
           <button

@@ -130,7 +130,7 @@ export default function WhaleRadar({ explorer, onOpenToken, onWallet }: Props) {
           <div className="live-sub">
             Big trades <span className="dim">≥ {fmtUsd(minUsd, { compact: true })}</span>
           </div>
-          {loading && !data && <div className="dim live-empty">Reading the last 30 minutes of trades…</div>}
+          {loading && !data && <div className="dim live-empty is-loading">Reading the last 30 minutes of trades…</div>}
           {data && data.trades.length === 0 && <div className="dim live-empty">No trades this size in the window.</div>}
           <div className="trade-rows">
             {data?.trades.map((t: WhaleTrade) => (

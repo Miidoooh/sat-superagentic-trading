@@ -156,7 +156,7 @@ export default function PonsTrenches({ explorer, onOpenToken }: Props) {
       )}
 
       {loading && !data ? (
-        <div className="chart-empty">Reading launches and curves from Robinhood Chain…</div>
+        <div className="chart-empty is-loading">Reading launches and curves from Robinhood Chain…</div>
       ) : (
         data && (
           <div className="live-body trench-grid">

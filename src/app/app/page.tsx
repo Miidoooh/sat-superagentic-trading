@@ -174,16 +174,16 @@ export default function Terminal() {
       <header className="topbar">
         <Link href="/" className="brand">
           <Logo />
-          SUPERAGENTIC TRADING
+          <span className="brand-name">SAT</span>
         </Link>
-        <span className="pill">{market?.chain.name ?? "Robinhood Chain"}</span>
-        {market && (
-          <span className={`pill ${market.source === "robinhood-chain" ? "ok" : "warn"}`}>
-            <span className={market.source === "robinhood-chain" ? "dot live" : "dot"} />
-            {market.source === "robinhood-chain" ? "live mainnet" : market.source}
-          </span>
-        )}
-        <div className="tfs view-tabs">
+        <span
+          className={`pill chain-pill ${!market || market.source === "robinhood-chain" ? "ok" : "warn"}`}
+          title={market && market.source !== "robinhood-chain" ? `Data source: ${market.source}` : "Live Robinhood Chain mainnet data"}
+        >
+          <span className={!market || market.source === "robinhood-chain" ? "dot live" : "dot"} />
+          {market?.chain.name ?? "Robinhood Chain"}
+        </span>
+        <div className="tfs view-tabs" role="tablist">
           {VIEWS.map((v) => (
             <button key={v.id} className={`tf ${view === v.id ? "active" : ""}`} onClick={() => switchView(v.id)}>
               {v.label}
@@ -193,13 +193,17 @@ export default function Terminal() {
         </div>
         <div className="spacer" />
         <AlertsCenter onOpenToken={(token, url) => void openToken(token, url)} onOpenWallet={openWallet} />
-        <span className={`pill ${market?.execution.enabled ? "ok" : ""}`}>
-          {market?.execution.enabled
-            ? `trading on · max ${market.execution.maxTradeNative} ${market.chain.symbol}`
-            : "trading off"}
-        </span>
+        {market?.execution.enabled ? (
+          <span className="pill ok">
+            trading on · max {market.execution.maxTradeNative} {market.chain.symbol}
+          </span>
+        ) : (
+          <span className="pill quiet" title="Trade execution is disabled; the agent only proposes trades">
+            read-only
+          </span>
+        )}
         {market && (
-          <a className="pill" href={market.chain.explorer} target="_blank" rel="noreferrer noopener">
+          <a className="pill quiet" href={market.chain.explorer} target="_blank" rel="noreferrer noopener" title="Open the block explorer">
             explorer ↗
           </a>
         )}
@@ -317,7 +321,7 @@ export default function Terminal() {
           {chart && chart.candles.length > 0 ? (
             <ChartPanel candles={chart.candles} analysis={analysis} />
           ) : (
-            <div className="chart-empty">
+            <div className={`chart-empty ${chartLoading ? "is-loading" : ""}`}>
               {chartLoading
                 ? isPons
                   ? "Building candles from curve trades…"

@@ -1,66 +1,50 @@
 import Image from "next/image";
 import Link from "next/link";
+import HeroPreview from "@/components/HeroPreview";
 import LandingStats from "@/components/LandingStats";
 import Logo from "@/components/Logo";
 import PonsTicker from "@/components/PonsTicker";
 import Ticker from "@/components/Ticker";
 import { ROBINHOOD_MAINNET } from "@/lib/chain/constants";
+import "./live.css";
 
-const FEATURES = [
+interface Pillar {
+  step: string;
+  title: string;
+  lead: string;
+  items: { name: string; text: string; href: string }[];
+}
+
+const PILLARS: Pillar[] = [
   {
-    icon: "★",
-    title: "Smart Money",
-    body: "A 24-hour leaderboard of the most active and most accumulating wallets. Open any wallet to see every token it traded, follow it, and get pinged the moment it buys, sells or launches.",
+    step: "01",
+    title: "Watch",
+    lead: "See where the money is moving, the moment it moves.",
+    items: [
+      { name: "Whale Radar", text: "The biggest buys and sells, live.", href: "/app?view=radar" },
+      { name: "Pons Trenches", text: "New launches and curves about to graduate.", href: "/app?view=trenches" },
+      { name: "Smart Money", text: "Top wallets, and what they are buying.", href: "/app?view=wallets" },
+    ],
   },
   {
-    icon: "🔔",
-    title: "Live alerts",
-    body: "Browser notifications for whale trades above your size, Pons curves about to graduate, and any move by a wallet you follow, checked against the chain every 15 seconds.",
+    step: "02",
+    title: "Understand",
+    lead: "Charts and signals, explained in plain words.",
+    items: [
+      { name: "Chart analysis", text: "Trend, RSI, MACD, support and resistance.", href: "/app" },
+      { name: "Pattern detection", text: "Breakouts, crosses and divergences, scored.", href: "/app" },
+      { name: "Ask the agent", text: "Describe what you want; it scans every token.", href: "/app" },
+    ],
   },
   {
-    icon: "▦",
-    title: "Pons charts",
-    body: "Real candles for every Pons launch, built from its own curve trades from the first block, with volume, a live trade tape and the top holders.",
-  },
-  {
-    icon: "◉",
-    title: "Whale Radar",
-    body: "Every Stock Token swap and Pons curve trade from the last 30 minutes, priced in USD. See the biggest buys and sells as they land, net inflow and outflow per token, and live buy versus sell pressure.",
-  },
-  {
-    icon: "▲",
-    title: "Pons Trenches",
-    body: "New Pons launches the moment they deploy, the curves closest to graduating with the real amount raised, the most traded curves right now, and every launch that just graduated to Uniswap.",
-  },
-  {
-    icon: "◈",
-    title: "Deep chart analysis",
-    body: "RSI, MACD, moving averages, Bollinger bands and ATR computed on real oracle price history, with support and resistance clustered from swing pivots.",
-  },
-  {
-    icon: "◇",
-    title: "Pattern detection",
-    body: "Breakouts, moving-average and MACD crosses, double tops and bottoms, RSI divergence and volatility squeezes, each scored and marked on the chart.",
-  },
-  {
-    icon: "⌗",
-    title: "Criteria scanning",
-    body: "Describe what you are looking for in plain language. The agent turns it into explicit filters over liquidity, momentum, trend, RSI and patterns.",
-  },
-  {
-    icon: "⛓",
-    title: "On-chain analytics",
-    body: "Swap volume with a buy and sell split, transfer flow, mints and burns, whale transfers and the largest net accumulators, read straight from logs.",
-  },
-  {
-    icon: "⇄",
-    title: "Trade proposals",
-    body: "The agent proposes swaps through Uniswap v3 and never holds a key. Size, slippage and price-impact limits are enforced before you ever see a prompt.",
-  },
-  {
-    icon: "◎",
-    title: "Oracle cross-check",
-    body: "Every pool price sits next to its Chainlink reference price, so you can see when the 24/7 on-chain market has drifted from the underlying equity.",
+    step: "03",
+    title: "Act",
+    lead: "Stay ahead without staring at a screen.",
+    items: [
+      { name: "Live alerts", text: "Whale trades, graduations, followed wallets.", href: "/app" },
+      { name: "Trade proposals", text: "The agent drafts it. You review and sign.", href: "/app" },
+      { name: "Oracle check", text: "Every pool price next to its Chainlink price.", href: "/app" },
+    ],
   },
 ];
 
@@ -94,31 +78,33 @@ export default function Landing() {
         </Link>
       </nav>
 
-      <section className="hero">
-        <div className="wrap">
-          <span className="hero-mark">
-            <Image src="/logo.png" alt="" width={176} height={176} priority />
-          </span>
-          <Link className="pill accent new-pill" href="/app?view=wallets">
-            <b>NEW</b> Smart Money, live alerts and Pons charts →
-          </Link>
-          <h1>
-            Your agent reads the <em>whole chain</em> before you read one chart
-          </h1>
-          <p className="sub">
-            SAT runs deep technical analysis, surfaces chart patterns, and scans every tokenised equity on
-            Robinhood Chain against the exact criteria you describe. Prices come from Uniswap v3 pools and
-            Chainlink feeds on chain {ROBINHOOD_MAINNET.chainId}.
-          </p>
-          <div className="cta">
-            <Link className="btn primary lg" href="/app">
-              Enter App →
+      <section className="hero hero-split">
+        <div className="wrap hero-grid">
+          <div className="hero-copy">
+            <span className="hero-mark">
+              <Image src="/logo.png" alt="" width={176} height={176} priority />
+            </span>
+            <Link className="pill accent new-pill" href="/app?view=wallets">
+              <b>NEW</b> Smart Money, live alerts and Pons charts →
             </Link>
-            <Link className="btn lg" href="/app?view=trenches">
-              Pons Trenches
-            </Link>
+            <h1>
+              The whole <em>Robinhood Chain</em>, read for you
+            </h1>
+            <p className="sub">
+              Stock tokens that trade around the clock, fresh launches on Pons, and the wallets moving them. SAT
+              watches every trade on chain {ROBINHOOD_MAINNET.chainId} and tells you what matters.
+            </p>
+            <div className="cta">
+              <Link className="btn primary lg" href="/app">
+                Enter App →
+              </Link>
+              <Link className="btn lg ghost" href="/app?view=trenches">
+                Explore launches
+              </Link>
+            </div>
+            <p className="fine">Free to use. Read-only by default; you sign every trade yourself.</p>
           </div>
-          <p className="fine">Read-only by default. Trading stays disabled until you turn it on.</p>
+          <HeroPreview />
         </div>
       </section>
 
@@ -128,15 +114,33 @@ export default function Landing() {
       <div className="wrap">
         <LandingStats />
 
-        <div className="features">
-          {FEATURES.map((f) => (
-            <div className="feature" key={f.title}>
-              <div className="ico">{f.icon}</div>
-              <h3>{f.title}</h3>
-              <p>{f.body}</p>
+        <section className="pillars">
+          {PILLARS.map((p) => (
+            <div className="pillar" key={p.title}>
+              <div className="pillar-step mono">{p.step}</div>
+              <h3>{p.title}</h3>
+              <p className="pillar-lead">{p.lead}</p>
+              <ul>
+                {p.items.map((item) => (
+                  <li key={item.name}>
+                    <Link href={item.href}>
+                      <strong>{item.name}</strong>
+                      <span>{item.text}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
             </div>
           ))}
-        </div>
+        </section>
+
+        <section className="closer">
+          <h2>Start with one question</h2>
+          <p>Open the app and ask the agent anything, like “where are whales buying right now?”</p>
+          <Link className="btn primary lg" href="/app">
+            Open SAT →
+          </Link>
+        </section>
 
         <h2 className="section-label">Where the numbers come from</h2>
         <div className="sources">
@@ -156,8 +160,8 @@ export default function Landing() {
             <code>AggregatorV3Interface</code>
           </div>
           <div className="source">
-            <span className="pill">Flow &amp; volume</span>
-            Swap and Transfer event logs
+            <span className="pill">Flow &amp; launches</span>
+            Swap, curve and Transfer event logs
             <code>eth_getLogs</code>
           </div>
         </div>
