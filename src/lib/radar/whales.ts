@@ -242,7 +242,7 @@ export function aggregateFlows(trades: PricedTrade[]): FlowRow[] {
   return [...rows.values()].map(({ wallets, ...row }) => ({ ...row, traders: wallets.size }));
 }
 
-function totalsOf(trades: PricedTrade[]): Record<RadarVenue, VenueTotals> {
+export function totalsOf(trades: PricedTrade[]): Record<RadarVenue, VenueTotals> {
   const totals: Record<RadarVenue, VenueTotals> = {
     stock: { buyUsd: 0, sellUsd: 0, trades: 0 },
     pons: { buyUsd: 0, sellUsd: 0, trades: 0 },

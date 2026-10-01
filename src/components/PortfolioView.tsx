@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { fmtAgo, fmtPct, fmtPrice, fmtUsd } from "@/lib/format";
 import type { Portfolio } from "@/lib/portfolio/portfolio";
 import { shortAddr } from "./follows";
+import ShareCard from "./ShareCard";
 import { TRADED_EVENT, tradedTokens, useWallet } from "./wallet";
 
 const REFRESH_MS = 45_000;
@@ -33,6 +34,7 @@ export default function PortfolioView({ explorer, onOpenToken }: Props) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  const [sharing, setSharing] = useState<{ token: string; symbol: string; pnl: number } | null>(null);
 
   const address = viewing ?? wallet.address;
   const own = address !== null && address.toLowerCase() === wallet.address?.toLowerCase();
@@ -176,6 +178,7 @@ export default function PortfolioView({ explorer, onOpenToken }: Props) {
               <span>Value</span>
               <span>Avg cost</span>
               <span>PnL</span>
+              <span />
             </div>
             {data.holdings.map((h) => {
               const pnl = h.unrealizedUsd === null ? null : h.unrealizedUsd + h.realizedUsd;
@@ -203,6 +206,26 @@ export default function PortfolioView({ explorer, onOpenToken }: Props) {
                     {pnlPct !== null && <span className={`mono ${pnlPct >= 0 ? "up" : "down"}`}>{fmtPct(pnlPct)}</span>}
                     {h.balance > 0 && h.coveredPct < 99 && <span className="dim">cost known for {h.coveredPct.toFixed(0)}%</span>}
                   </span>
+                  {pnl !== null && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className="pf-share"
+                      title="Share a PnL card"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSharing({ token: h.token, symbol: h.symbol, pnl });
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.stopPropagation();
+                          setSharing({ token: h.token, symbol: h.symbol, pnl });
+                        }
+                      }}
+                    >
+                      Share
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -231,6 +254,9 @@ export default function PortfolioView({ explorer, onOpenToken }: Props) {
           </>
         )}
       </div>
+      {sharing && address && (
+        <ShareCard address={address} token={sharing.token} symbol={sharing.symbol} pnlUsd={sharing.pnl} onClose={() => setSharing(null)} />
+      )}
     </div>
   );
 }

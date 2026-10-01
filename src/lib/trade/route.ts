@@ -28,6 +28,8 @@ const quoterAbi = parseAbi([
 export const router02Abi = parseAbi([
   "function exactInput((bytes path,address recipient,uint256 amountIn,uint256 amountOutMinimum) params) payable returns (uint256 amountOut)",
   "function unwrapWETH9(uint256 amountMinimum, address recipient) payable",
+  "function unwrapWETH9WithFee(uint256 amountMinimum, address recipient, uint256 feeBips, address feeRecipient) payable",
+  "function sweepTokenWithFee(address token, uint256 amountMinimum, address recipient, uint256 feeBips, address feeRecipient) payable",
   "function multicall(bytes[] data) payable returns (bytes[] results)",
 ]);
 
@@ -106,22 +108,51 @@ function isRevert(err: unknown): boolean {
   return e.cause ? isRevert(e.cause) : false;
 }
 
+/**
+ * SAT's trade fee, paid by the router out of the trade's output in the same
+ * transaction (PeripheryPaymentsWithFee). The minimum is checked before the fee.
+ */
+export interface RouteFee {
+  bips: number;
+  recipient: `0x${string}`;
+}
+
+/** What the wallet receives after the fee. */
+export const netOfFee = (amount: bigint, fee: RouteFee | null) => (fee ? amount - (amount * BigInt(fee.bips)) / 10_000n : amount);
+
 /** Calldata for a routed buy paid in native ETH. The router wraps msg.value itself. */
-export function encodeRoutedBuy(route: SwapRoute, minOut: bigint, wallet: `0x${string}`): `0x${string}` {
-  return encodeFunctionData({
+export function encodeRoutedBuy(route: SwapRoute, minOut: bigint, wallet: `0x${string}`, fee: RouteFee | null = null): `0x${string}` {
+  const path = encodePath(route.tokens, route.fees);
+  if (!fee) {
+    return encodeFunctionData({
+      abi: router02Abi,
+      functionName: "exactInput",
+      args: [{ path, recipient: wallet, amountIn: route.amountIn, amountOutMinimum: minOut }],
+    });
+  }
+  const swap = encodeFunctionData({
     abi: router02Abi,
     functionName: "exactInput",
-    args: [{ path: encodePath(route.tokens, route.fees), recipient: wallet, amountIn: route.amountIn, amountOutMinimum: minOut }],
+    args: [{ path, recipient: ADDRESS_THIS, amountIn: route.amountIn, amountOutMinimum: minOut }],
   });
+  const token = route.tokens[route.tokens.length - 1];
+  const sweep = encodeFunctionData({
+    abi: router02Abi,
+    functionName: "sweepTokenWithFee",
+    args: [token, minOut, wallet, BigInt(fee.bips), fee.recipient],
+  });
+  return encodeFunctionData({ abi: router02Abi, functionName: "multicall", args: [[swap, sweep]] });
 }
 
 /** Calldata for a routed sell whose WETH proceeds are unwrapped to native ETH in the same transaction. */
-export function encodeRoutedSell(route: SwapRoute, minOut: bigint, wallet: `0x${string}`): `0x${string}` {
+export function encodeRoutedSell(route: SwapRoute, minOut: bigint, wallet: `0x${string}`, fee: RouteFee | null = null): `0x${string}` {
   const swap = encodeFunctionData({
     abi: router02Abi,
     functionName: "exactInput",
     args: [{ path: encodePath(route.tokens, route.fees), recipient: ADDRESS_THIS, amountIn: route.amountIn, amountOutMinimum: minOut }],
   });
-  const unwrap = encodeFunctionData({ abi: router02Abi, functionName: "unwrapWETH9", args: [minOut, wallet] });
+  const unwrap = fee
+    ? encodeFunctionData({ abi: router02Abi, functionName: "unwrapWETH9WithFee", args: [minOut, wallet, BigInt(fee.bips), fee.recipient] })
+    : encodeFunctionData({ abi: router02Abi, functionName: "unwrapWETH9", args: [minOut, wallet] });
   return encodeFunctionData({ abi: router02Abi, functionName: "multicall", args: [[swap, unwrap]] });
 }

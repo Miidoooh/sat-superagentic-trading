@@ -1,13 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { DEFAULT_ALERT_SETTINGS, detectAlerts, type AlertItem, type AlertSettings } from "@/lib/alerts/detect";
 import { evaluateRules, newRuleState, planPoll } from "@/lib/alerts/rules";
 import { fmtUsd } from "@/lib/format";
 import type { TrenchesSnapshot } from "@/lib/radar/trenches";
 import type { RadarSnapshot } from "@/lib/radar/whales";
 import type { TokenMarket } from "@/lib/types";
+import type { TierId } from "@/lib/sat/tiers";
 import { useRules, useTelegramLink } from "./alertStore";
+import { useSat } from "./sat";
 import { useFollows } from "./follows";
 import RulesPanel from "./RulesPanel";
 import TelegramPanel from "./TelegramPanel";
@@ -26,6 +28,7 @@ const GRAD_LEVELS = [75, 90, 95];
 interface Props {
   onOpenToken: (token: string, url?: string) => void;
   onOpenWallet: (wallet: string) => void;
+  onOpenSat: () => void;
   agentEnabled: boolean;
 }
 
@@ -42,14 +45,18 @@ const getJson = <T,>(url: string): Promise<T | null> =>
     .then((r) => (r.ok ? (r.json() as Promise<T>) : null))
     .catch(() => null);
 
-export default function AlertsCenter({ onOpenToken, onOpenWallet, agentEnabled }: Props) {
+export default function AlertsCenter({ onOpenToken, onOpenWallet, onOpenSat, agentEnabled }: Props) {
   const [settings, setSettings] = useState<AlertSettings>(DEFAULT_ALERT_SETTINGS);
   const [open, setOpen] = useState(false);
   const [toasts, setToasts] = useState<AlertItem[]>([]);
   const [unread, setUnread] = useState(0);
   const { follows } = useFollows();
-  const { rules } = useRules();
-  const { link, save: saveLink } = useTelegramLink();
+  const { rules: allRules } = useRules();
+  const { link, save: saveLink, update: updateLink } = useTelegramLink();
+  const { tier } = useSat();
+  const rules = useMemo(() => allRules.slice(0, tier.maxRules), [allRules, tier.maxRules]);
+  const linkToken = link?.token ?? null;
+  const proof = link?.proof;
 
   useEffect(() => setSettings(loadSettings()), []);
 
@@ -68,17 +75,20 @@ export default function AlertsCenter({ onOpenToken, onOpenWallet, agentEnabled }
 
   // Mirror settings, follows and rules to the linked Telegram chat.
   useEffect(() => {
-    if (!link) return;
+    if (!linkToken) return;
     const timer = setTimeout(async () => {
       const res = await fetch("/api/telegram/sync", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token: link.token, settings, follows: follows.map((f) => f.address), rules }),
+        body: JSON.stringify({ token: linkToken, settings, follows: follows.map((f) => f.address), rules: allRules, proof }),
       }).catch(() => null);
-      if (res?.status === 404) saveLink(null);
+      if (res?.status === 404) return saveLink(null);
+      const json = res ? ((await res.json().catch(() => null)) as { wallet?: string | null; tier?: TierId; error?: string } | null) : null;
+      if (res?.ok && json) updateLink({ wallet: json.wallet ?? undefined, tier: json.tier, proof: undefined });
+      else if (proof && json?.error) updateLink({ proof: undefined });
     }, SYNC_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [link, settings, follows, rules, saveLink]);
+  }, [linkToken, proof, settings, follows, allRules, saveLink, updateLink]);
 
   const fire = useCallback(
     (items: AlertItem[]) => {
@@ -91,15 +101,15 @@ export default function AlertsCenter({ onOpenToken, onOpenWallet, agentEnabled }
           new Notification(item.title, { body: item.body, tag: item.id, icon: "/logo.png" });
         }
       }
-      if (link) {
+      if (linkToken) {
         void fetch("/api/telegram/notify", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token: link.token, alerts: items.slice(0, 20) }),
+          body: JSON.stringify({ token: linkToken, alerts: items.slice(0, 20) }),
         }).catch(() => undefined);
       }
     },
-    [link],
+    [linkToken],
   );
 
   useEffect(() => {
@@ -202,7 +212,13 @@ export default function AlertsCenter({ onOpenToken, onOpenWallet, agentEnabled }
                 <input type="checkbox" checked={settings.followed} onChange={(e) => update({ followed: e.target.checked })} />
                 Any trade or launch by a wallet I follow ({follows.length})
               </label>
-              <RulesPanel agentEnabled={agentEnabled} />
+              <RulesPanel
+                agentEnabled={agentEnabled}
+                onUpgrade={() => {
+                  setOpen(false);
+                  onOpenSat();
+                }}
+              />
               <TelegramPanel />
             </aside>
           </>

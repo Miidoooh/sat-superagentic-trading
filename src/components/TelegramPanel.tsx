@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { TIERS, verifyMessage } from "@/lib/sat/tiers";
 import { useTelegramLink } from "./alertStore";
+import { shortAddr } from "./follows";
+import { TierBadge } from "./sat";
+import { useWallet } from "./wallet";
 
 const CHECK_MS = 2_500;
 
@@ -13,7 +17,9 @@ interface Status {
 
 /** Link a Telegram chat so alerts and rules also arrive there. */
 export default function TelegramPanel() {
-  const { link, save } = useTelegramLink();
+  const { link, save, update } = useTelegramLink();
+  const wallet = useWallet();
+  const [signing, setSigning] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [pending, setPending] = useState<{ code: string; url: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +79,24 @@ export default function TelegramPanel() {
     save(null);
   };
 
+  const verify = async () => {
+    if (!wallet.address) return void wallet.connect();
+    setSigning(true);
+    setError(null);
+    try {
+      const issuedAt = Date.now();
+      const signature = await wallet.signMessage(verifyMessage(wallet.address, issuedAt));
+      update({ proof: { wallet: wallet.address, issuedAt, signature } });
+    } catch (e) {
+      const msg = (e as Error).message;
+      setError(/rejected|denied/i.test(msg) ? "Signature cancelled." : msg);
+    } finally {
+      setSigning(false);
+    }
+  };
+
+  const verified = link?.wallet && wallet.address && link.wallet.toLowerCase() === wallet.address.toLowerCase();
+
   if (!status) return null;
 
   return (
@@ -81,13 +105,26 @@ export default function TelegramPanel() {
       {!status.configured ? (
         <div className="dim alerts-note">Telegram alerts are not set up on this deployment yet.</div>
       ) : link ? (
-        <div className="tg-row">
-          <span className="tg-dot" /> Linked to @{status.bot}
-          <div className="spacer" />
-          <button className="btn sm" onClick={unlink}>
-            Unlink
-          </button>
-        </div>
+        <>
+          <div className="tg-row">
+            <span className="tg-dot" /> Linked to @{status.bot}
+            {link.tier && <TierBadge tier={TIERS[link.tier]} />}
+            <div className="spacer" />
+            <button className="btn sm" onClick={unlink}>
+              Unlink
+            </button>
+          </div>
+          {!verified && (
+            <div className="tg-verify">
+              <span className="dim">
+                {link.wallet ? `Verified ${shortAddr(link.wallet)}.` : "Prove your SAT wallet once to get holder speed and rule limits in Telegram."}
+              </span>
+              <button className="btn sm" onClick={verify} disabled={signing || !!link.proof}>
+                {signing ? "Check wallet…" : link.proof ? "Verifying…" : wallet.address ? `Verify ${shortAddr(wallet.address)}` : "Connect wallet"}
+              </button>
+            </div>
+          )}
+        </>
       ) : pending ? (
         <div className="tg-row">
           <a className="btn sm primary" href={pending.url} target="_blank" rel="noreferrer">
@@ -104,8 +141,8 @@ export default function TelegramPanel() {
       {status.configured && (
         <div className="dim alerts-note">
           {status.worker
-            ? "Sent 24/7 by the SAT worker, even with this tab closed."
-            : "Sent while SAT is open in a browser. A background worker is not running."}
+            ? "Sent 24/7 by the SAT worker, even with this tab closed. Free tier arrives 60s after holders."
+            : "Holders get alerts while SAT is open in a browser. 24/7 delivery starts when the background worker runs."}
         </div>
       )}
     </div>

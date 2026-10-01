@@ -6,6 +6,10 @@ import { getTrenches } from "../radar/trenches";
 import { getLeaderboard, getWalletActivity } from "../radar/wallets";
 import { getWhaleRadar } from "../radar/whales";
 import { getOnchainSnapshot, getWalletBalances } from "../chain/onchain";
+import { getConfig } from "../config";
+import { ponsTokenDetail } from "../data/ponsToken";
+import { getSatMarket } from "../sat/token";
+import { TIERS } from "../sat/tiers";
 import { ScanCriteriaSchema } from "../scanner/criteria";
 import { scanTokens } from "../scanner/scan";
 import { prepareTrade } from "../trade/prepare";
@@ -329,6 +333,67 @@ const tools: ToolDef[] = [
           graduating: t.graduating.slice(0, 10).map(card),
           hot: t.hot.slice(0, 10).map(card),
           graduated: t.graduated.slice(0, 8).map(({ symbol, token, liquidityUsd, url }) => ({ symbol, address: token, liquidityUsd: round(liquidityUsd, 0), url })),
+        },
+      };
+    },
+  },
+  {
+    name: "launch_safety",
+    description:
+      "SAT safety score (0-100) for one live Pons launch, from on-chain history: deployer's share of supply, top-10 holder concentration, whether the deployer sold, how many wallets traded, sell pressure and fill speed. Each deduction comes with a plain reason. Use it whenever the user asks if a launch is safe, a rug, or worth a look.",
+    parameters: {
+      type: "object",
+      properties: { token: { type: "string", description: "Pons token symbol or 0x address" } },
+      required: ["token"],
+      additionalProperties: false,
+    },
+    async run(raw) {
+      const { token } = z.object({ token: z.string().min(1) }).parse(raw);
+      const p = getProvider();
+      if (!(p instanceof RobinhoodChainProvider)) return { result: { error: `Safety scores need live chain data; the ${p.source} source has none.` } };
+      const m = await resolve(token);
+      if (m.venue !== "pons") return { result: { error: `${m.token.symbol} is not a live Pons launch, so it has no curve history to score.` } };
+      const d = await ponsTokenDetail(m.token.address, await p.quoteBook());
+      if (!d) return { result: { error: `${m.token.symbol} has graduated or its curve could not be read.` } };
+      return {
+        result: {
+          symbol: m.token.symbol,
+          address: m.token.address,
+          score: d.safety.score,
+          verdict: d.safety.label,
+          reasons: d.safety.flags,
+          deployerPct: round(d.safety.deployerPct),
+          top10Pct: round(d.safety.top10Pct),
+          deployerSoldUsd: round(d.safety.deployerSoldUsd, 0),
+          traders: d.stats.traders,
+          holders: d.holderCount,
+          note: "A screen from on-chain data, not a guarantee.",
+        },
+      };
+    },
+  },
+  {
+    name: "sat_token",
+    description:
+      "The SAT token itself: live price, market cap, 24h volume and change, and what holder tiers unlock. Use it when the user asks about SAT, the token, holding, tiers or perks.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    async run() {
+      const [sat, cfg] = [await getSatMarket(), getConfig()];
+      return {
+        result: {
+          address: sat.address,
+          priceUsd: sat.priceUsd,
+          marketCapUsd: round(sat.marketCapUsd, 0),
+          change24hPct: round(sat.change24hPct),
+          volume24hUsd: round(sat.volume24hUsd, 0),
+          trades24h: sat.trades24h,
+          buyUrl: sat.buyUrl,
+          tiers: Object.values(TIERS).map((t) => ({
+            name: t.name,
+            minUsd: t.id === "whale" ? cfg.SAT_TIER_WHALE_USD : t.id === "holder" ? cfg.SAT_TIER_HOLDER_USD : 0,
+            perks: t.perks,
+          })),
+          note: "Holding SAT unlocks product features. Do not present it as an investment or predict its price.",
         },
       };
     },

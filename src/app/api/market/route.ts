@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { executionEnabled, getConfig } from "@/lib/config";
+import { executionEnabled, getConfig, tradeFeeBps } from "@/lib/config";
 import { getProvider } from "@/lib/data/provider";
 import { errorResponse } from "@/lib/http";
 import { MARKET_FRESH_MS, MARKET_KEY, sharedSnapshot } from "@/lib/store/snapshots";
@@ -28,6 +28,8 @@ export async function GET() {
         enabled: executionEnabled(cfg) && provider.capabilities.liveTrading,
         maxTradeNative: cfg.SAT_MAX_TRADE_NATIVE,
         maxSlippageBps: cfg.SAT_MAX_SLIPPAGE_BPS,
+        feeBps: tradeFeeBps(cfg),
+        feeRecipient: cfg.SAT_FEE_RECIPIENT ?? null,
       },
       agentEnabled: Boolean(cfg.OPENAI_API_KEY),
       tokens,

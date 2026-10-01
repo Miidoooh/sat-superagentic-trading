@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { describeRule, type Rule } from "@/lib/alerts/rules";
 import { useRules } from "./alertStore";
+import { useSat } from "./sat";
 
 const EXAMPLES = [
   "Tell me when whales buy more than $25k of NVDA",
@@ -11,15 +12,18 @@ const EXAMPLES = [
 ];
 
 /** Plain-words alert rules. They only notify; nothing here can trade. */
-export default function RulesPanel({ agentEnabled }: { agentEnabled: boolean }) {
+export default function RulesPanel({ agentEnabled, onUpgrade }: { agentEnabled: boolean; onUpgrade: () => void }) {
   const { rules, add, remove, toggle } = useRules();
+  const { tier, thresholds } = useSat();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const full = rules.length >= tier.maxRules;
+  const nextUsd = tier.id === "free" ? thresholds.holderUsd : thresholds.whaleUsd;
 
   const submit = async (value = text) => {
     const trimmed = value.trim();
-    if (trimmed.length < 3 || busy) return;
+    if (trimmed.length < 3 || busy || full) return;
     setBusy(true);
     setError(null);
     try {
@@ -41,7 +45,18 @@ export default function RulesPanel({ agentEnabled }: { agentEnabled: boolean }) 
 
   return (
     <div className="rules">
-      <div className="alerts-label">My rules</div>
+      <div className="alerts-row">
+        <div className="alerts-label">My rules</div>
+        <div className="spacer" />
+        <span className="dim mono rules-count">
+          {Math.min(rules.length, tier.maxRules)}/{tier.maxRules}
+        </span>
+      </div>
+      {full && tier.id !== "whale" && (
+        <button className="upsell" onClick={onUpgrade}>
+          Rule limit reached. Hold ${nextUsd} of SAT for {tier.id === "free" ? 15 : 30} rules →
+        </button>
+      )}
       {agentEnabled ? (
         <form
           className="rules-form"
@@ -56,9 +71,9 @@ export default function RulesPanel({ agentEnabled }: { agentEnabled: boolean }) 
             maxLength={300}
             placeholder="Describe an alert in your own words…"
             onChange={(e) => setText(e.target.value)}
-            disabled={busy}
+            disabled={busy || full}
           />
-          <button className="btn sm primary" type="submit" disabled={busy || text.trim().length < 3}>
+          <button className="btn sm primary" type="submit" disabled={busy || full || text.trim().length < 3}>
             {busy ? "Adding…" : "Add"}
           </button>
         </form>
@@ -77,8 +92,8 @@ export default function RulesPanel({ agentEnabled }: { agentEnabled: boolean }) 
       )}
       {rules.length > 0 && (
         <ul className="rules-list">
-          {rules.map((r) => (
-            <li key={r.id} className={`rule ${r.enabled ? "" : "is-off"}`}>
+          {rules.map((r, i) => (
+            <li key={r.id} className={`rule ${r.enabled && i < tier.maxRules ? "" : "is-off"}`} title={i >= tier.maxRules ? "Paused: above your tier's rule limit" : undefined}>
               <label className="rule-toggle" title={r.enabled ? "Pause" : "Resume"}>
                 <input type="checkbox" checked={r.enabled} onChange={() => toggle(r.id)} />
               </label>

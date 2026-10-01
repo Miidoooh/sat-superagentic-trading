@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ponsTokenUrl } from "@/lib/chain/constants";
 import { fmtAgo, fmtPrice, fmtUsd } from "@/lib/format";
 import type { PonsTokenDetail } from "@/lib/data/ponsToken";
+import type { SafetyScore } from "@/lib/safety/score";
 import { shortAddr } from "./follows";
 import { usePoll } from "./usePoll";
 
@@ -11,6 +12,29 @@ interface Props {
   token: string;
   explorer: string;
   onWallet: (address: string) => void;
+}
+
+function SafetyCard({ safety }: { safety: SafetyScore }) {
+  return (
+    <div className={`safety ${safety.grade}`}>
+      <div className="safety-gauge" style={{ ["--score" as string]: safety.score }}>
+        <span className="mono">{safety.score}</span>
+      </div>
+      <div className="safety-body">
+        <div className="safety-head">
+          <strong>{safety.label}</strong>
+          <span className="dim">SAT safety score · from on-chain history</span>
+        </div>
+        <ul className="safety-flags">
+          {safety.flags.map((f) => (
+            <li key={f.text} className={f.tone}>
+              {f.text}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
 }
 
 /** Curve progress, trade tape and holders for one Pons launch. */
@@ -32,6 +56,7 @@ export default function PonsTokenPanel({ token, explorer, onWallet }: Props) {
 
   return (
     <div className="pons-panel">
+      {data.safety && <SafetyCard safety={data.safety} />}
       <div className="trench-stats">
         {curve && (
           <div className="quote grow">

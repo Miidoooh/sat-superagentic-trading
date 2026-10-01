@@ -37,6 +37,8 @@ export async function POST(req: Request) {
         exact: trade.exact ?? false,
         needsApproval: trade.needsRebuild === true || trade.steps.some((s) => s.label.startsWith("Approve")),
         warnings: trade.warnings,
+        feeBps: trade.feeBps ?? 0,
+        feeUsd: trade.feeUsd ?? 0,
       },
     });
   } catch (err) {

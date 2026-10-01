@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { RuleListSchema, type Rule } from "@/lib/alerts/rules";
+import type { TierId } from "@/lib/sat/tiers";
+import type { HolderProof } from "@/lib/sat/verify";
 
 const RULES_KEY = "sat:rules";
 const RULES_EVENT = "sat:rules-changed";
@@ -52,6 +54,11 @@ export function useRules() {
 export interface TelegramLink {
   token: string;
   linkedAt: number;
+  /** The wallet proven to the server, and the tier it earned at the last sync. */
+  wallet?: string;
+  tier?: TierId;
+  /** A fresh signature waiting to be sent with the next sync. */
+  proof?: HolderProof;
 }
 
 function readTelegram(): TelegramLink | null {
@@ -70,5 +77,13 @@ export function useTelegramLink() {
     else localStorage.removeItem(TG_KEY);
     window.dispatchEvent(new Event(TG_EVENT));
   }, []);
-  return { link, save };
+  const update = useCallback((patch: Partial<Omit<TelegramLink, "token">>) => {
+    const current = readTelegram();
+    if (!current) return;
+    const next: TelegramLink = { ...current, ...patch };
+    for (const k of Object.keys(patch) as (keyof TelegramLink)[]) if (patch[k as keyof typeof patch] === undefined) delete next[k];
+    localStorage.setItem(TG_KEY, JSON.stringify(next));
+    window.dispatchEvent(new Event(TG_EVENT));
+  }, []);
+  return { link, save, update };
 }

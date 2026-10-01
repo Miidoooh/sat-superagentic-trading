@@ -1,12 +1,15 @@
 import Image from "next/image";
 import Link from "next/link";
 import HeroPreview from "@/components/HeroPreview";
+import HeroPulse from "@/components/HeroPulse";
 import LandingStats from "@/components/LandingStats";
 import Logo from "@/components/Logo";
 import PonsTicker from "@/components/PonsTicker";
+import SatTokenSection from "@/components/SatTokenSection";
 import Ticker from "@/components/Ticker";
 import { ROBINHOOD_MAINNET } from "@/lib/chain/constants";
 import "./live.css";
+import "./v2.css";
 
 interface Pillar {
   step: string;
@@ -31,8 +34,8 @@ const PILLARS: Pillar[] = [
     title: "Understand",
     lead: "Charts and signals, explained in plain words.",
     items: [
+      { name: "Launch safety score", text: "Every Pons launch scored: deployer, holders, sells.", href: "/app?view=trenches" },
       { name: "Chart analysis", text: "Trend, RSI, MACD, support and resistance.", href: "/app" },
-      { name: "Pattern detection", text: "Breakouts, crosses and divergences, scored.", href: "/app" },
       { name: "Ask the agent", text: "Describe what you want; it scans every token.", href: "/app" },
     ],
   },
@@ -41,9 +44,9 @@ const PILLARS: Pillar[] = [
     title: "Act",
     lead: "Stay ahead without staring at a screen.",
     items: [
-      { name: "Live alerts", text: "Whale trades, graduations, followed wallets.", href: "/app" },
-      { name: "Trade proposals", text: "The agent drafts it. You review and sign.", href: "/app" },
-      { name: "Oracle check", text: "Every pool price next to its Chainlink price.", href: "/app" },
+      { name: "One-click trading", text: "Live quotes, guardrails, your own wallet signs.", href: "/app" },
+      { name: "Autopilot alerts", text: "Rules in plain words, sent to Telegram 24/7.", href: "/app" },
+      { name: "PnL cards", text: "Share real, on-chain-verified wins in one click.", href: "/app?view=portfolio" },
     ],
   },
 ];
@@ -84,15 +87,15 @@ export default function Landing() {
             <span className="hero-mark">
               <Image src="/logo.png" alt="" width={176} height={176} priority />
             </span>
-            <Link className="pill accent new-pill" href="/app?view=wallets">
-              <b>NEW</b> Smart Money, live alerts and Pons charts →
+            <Link className="pill accent new-pill" href="/app?view=sat">
+              <b>v2.5</b> Hold SAT, launch safety scores and PnL cards →
             </Link>
             <h1>
-              The whole <em>Robinhood Chain</em>, read for you
+              The eyes and brain for <em>Robinhood Chain</em>
             </h1>
             <p className="sub">
-              Stock tokens that trade around the clock, fresh launches on Pons, and the wallets moving them. SAT
-              watches every trade on chain {ROBINHOOD_MAINNET.chainId} and tells you what matters.
+              SAT watches every stock-token trade, every Pons launch and every whale on chain {ROBINHOOD_MAINNET.chainId}, then tells you what
+              matters in plain words. For traders, and for the agents they run.
             </p>
             <div className="cta">
               <Link className="btn primary lg" href="/app">
@@ -102,7 +105,8 @@ export default function Landing() {
                 Explore launches
               </Link>
             </div>
-            <p className="fine">Free to use. Read-only by default; you sign every trade yourself.</p>
+            <p className="fine">Free to use. Your keys never leave your wallet; you sign every trade yourself.</p>
+            <HeroPulse />
           </div>
           <HeroPreview />
         </div>
@@ -133,6 +137,8 @@ export default function Landing() {
             </div>
           ))}
         </section>
+
+        <SatTokenSection />
 
         <section className="closer">
           <h2>Start with one question</h2>

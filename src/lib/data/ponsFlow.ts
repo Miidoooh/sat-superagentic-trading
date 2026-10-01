@@ -99,7 +99,8 @@ export async function recentCurveTrades(): Promise<RawCurveTrade[]> {
   return cache.get("pons:trades", TRADES_TTL, async () => recentWindow.refresh((await blockClock()).head), { swr: true });
 }
 
-const dayWindow = new RollingWindow<RawCurveTrade>(blocksFor(86_400), spanned(DAY_SPAN, 3, (a, b) => readCurveTrades(a, b)));
+// Unfiltered log queries are rate limited hardest, so the first fill goes one range at a time.
+const dayWindow = new RollingWindow<RawCurveTrade>(blocksFor(86_400), spanned(DAY_SPAN, 1, (a, b) => readCurveTrades(a, b)));
 
 /** Every curve trade in the last 24 hours. The first fill is slow; refreshes read only new blocks. */
 export async function dayCurveTrades(): Promise<RawCurveTrade[]> {

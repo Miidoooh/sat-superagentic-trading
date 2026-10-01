@@ -8,6 +8,7 @@ import { TIMEFRAME_SECONDS, type Timeframe } from "../types";
 import { candlesFromPricePoints } from "./candles";
 import { curveMarket, findLaunch, quoteOf, readCurveStates, type PonsLaunch, type QuoteBook, type QuoteInfo } from "./pons";
 import { readCurveTrades, type RawCurveTrade } from "./ponsFlow";
+import { safetyScore, type SafetyScore } from "../safety/score";
 import { getTokenMeta } from "./tokenMeta";
 
 const TRANSFER = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
@@ -51,6 +52,7 @@ export interface PonsTokenDetail {
   holders: Holder[];
   holderCount: number;
   stats: { buys: number; sells: number; buyUsd: number; sellUsd: number; traders: number };
+  safety: SafetyScore;
 }
 
 interface TransferItem {
@@ -205,13 +207,22 @@ export async function ponsTokenDetail(token: string, book: QuoteBook): Promise<P
   }
   stats.traders = wallets.size;
 
+  const launchedAt = blockTime(clock, launch.block);
   return {
     market,
-    launchedAt: blockTime(clock, launch.block),
+    launchedAt,
     deployer: launch.deployer,
     trades: trades.slice(-80).reverse(),
     holders,
     holderCount: count,
     stats,
+    safety: safetyScore({
+      ageSeconds: Math.max(0, clock.headTime - launchedAt),
+      holders,
+      deployer: launch.deployer,
+      trades,
+      traders: stats.traders,
+      raisedUsd: market.curve?.raisedUsd ?? 0,
+    }),
   };
 }

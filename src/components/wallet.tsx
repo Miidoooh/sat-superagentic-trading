@@ -43,6 +43,8 @@ interface WalletState {
     onStep?: (text: string, href?: string) => void,
     account?: `0x${string}`,
   ) => Promise<`0x${string}`[]>;
+  /** personal_sign with the connected account. Free, moves no funds. */
+  signMessage: (message: string) => Promise<`0x${string}`>;
   reader: PublicClient;
 }
 
@@ -235,9 +237,19 @@ export function WalletProvider({ chain: chainProp, children }: { chain?: ChainIn
     [address, chain, reader],
   );
 
+  const signMessage = useCallback(
+    async (message: string) => {
+      const option = active.current;
+      if (!option || !address) throw new Error("Connect a wallet first.");
+      const wallet = createWalletClient({ account: address, transport: custom(option.provider) });
+      return wallet.signMessage({ account: address, message });
+    },
+    [address],
+  );
+
   const value = useMemo<WalletState>(
-    () => ({ address, chainId, chain, options, connecting, error, connect, disconnect, sendSteps, reader }),
-    [address, chainId, chain, options, connecting, error, connect, disconnect, sendSteps, reader],
+    () => ({ address, chainId, chain, options, connecting, error, connect, disconnect, sendSteps, signMessage, reader }),
+    [address, chainId, chain, options, connecting, error, connect, disconnect, sendSteps, signMessage, reader],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

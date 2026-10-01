@@ -18,6 +18,8 @@ interface Quote {
   exact: boolean;
   needsApproval: boolean;
   warnings: string[];
+  feeBps: number;
+  feeUsd: number;
 }
 
 interface QuoteResponse {
@@ -228,6 +230,12 @@ export default function TradePanel({ market, executionEnabled, maxTradeNative, m
                 <div className="kv">
                   <span className="k">Price impact</span>
                   <span className={`mono ${q.priceImpactPct > 3 ? "down" : ""}`}>{q.priceImpactPct.toFixed(2)}%</span>
+                </div>
+              )}
+              {q.feeBps > 0 && (
+                <div className="kv">
+                  <span className="k">SAT fee ({q.feeBps / 100}%)</span>
+                  <span className="mono dim">{fmtUsd(q.feeUsd)}</span>
                 </div>
               )}
               {q.needsApproval && <div className="dim">First confirms an exact approval, then the trade.</div>}

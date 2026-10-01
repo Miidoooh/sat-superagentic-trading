@@ -1,5 +1,5 @@
 import { formatUnits, getAddress, parseEther } from "viem";
-import { executionEnabled, getConfig, type SatConfig } from "../config";
+import { executionEnabled, getConfig, tradeFeeBps, type SatConfig } from "../config";
 import { findLaunch, quoteOf } from "../data/pons";
 import { getProvider } from "../data/provider";
 import { RobinhoodChainProvider } from "../data/robinhood";
@@ -17,7 +17,7 @@ import {
   quoteCurve,
   unitsOf,
 } from "./pons";
-import { encodeRoutedBuy, encodeRoutedSell, quoteRoute } from "./route";
+import { encodeRoutedBuy, encodeRoutedSell, netOfFee, quoteRoute, type RouteFee } from "./route";
 import { EXECUTION_DISABLED, validateIntent, type BuiltTrade, type TradeIntent, type TxStep } from "./trade";
 
 /** Above this, the preview carries a visible price-impact warning. */
@@ -96,9 +96,12 @@ async function prepareStock(
   const route = await quoteRoute(market, intent.side, amountIn, wrapped);
   if (!route) return { trade: null, market, errors: ["No Uniswap route can fill this trade right now."] };
   const minOut = minOutOf(route.amountOut, slippage);
+  const feeBps = tradeFeeBps(cfg);
+  const fee: RouteFee | null = feeBps > 0 && cfg.SAT_FEE_RECIPIENT ? { bips: feeBps, recipient: cfg.SAT_FEE_RECIPIENT } : null;
 
   const outDecimals = intent.side === "buy" ? market.token.decimals : 18;
   const outSymbol = intent.side === "buy" ? market.token.symbol : cfg.RH_NATIVE_SYMBOL;
+  // Price impact measures the pools; the SAT fee is shown on its own line.
   const out = Number(formatUnits(route.amountOut, outDecimals));
   const inUsd = intent.side === "buy" ? intent.amount * nativeUsd : intent.amount * market.priceUsd;
   const outUsd = intent.side === "buy" ? out * market.priceUsd : out * nativeUsd;
@@ -115,7 +118,7 @@ async function prepareStock(
         : `Swap ${intent.amount} ${market.token.symbol} for ${cfg.RH_NATIVE_SYMBOL}`,
     to: router,
     value: intent.side === "buy" ? amountIn.toString() : "0",
-    data: intent.side === "buy" ? encodeRoutedBuy(route, minOut, wallet) : encodeRoutedSell(route, minOut, wallet),
+    data: intent.side === "buy" ? encodeRoutedBuy(route, minOut, wallet, fee) : encodeRoutedSell(route, minOut, wallet, fee),
   });
 
   const warnings: string[] = [];
@@ -132,14 +135,16 @@ async function prepareStock(
       tokenAddress: token,
       chainId: cfg.RH_CHAIN_ID,
       amountIn: intent.side === "buy" ? `${intent.amount} ${cfg.RH_NATIVE_SYMBOL}` : `${intent.amount} ${market.token.symbol}`,
-      estimatedOut: fmtUnits(route.amountOut, outDecimals, outSymbol),
-      minOut: fmtUnits(minOut, outDecimals, outSymbol),
+      estimatedOut: fmtUnits(netOfFee(route.amountOut, fee), outDecimals, outSymbol),
+      minOut: fmtUnits(netOfFee(minOut, fee), outDecimals, outSymbol),
       slippageBps: slippage,
       notionalUsd: inUsd,
       steps,
       warnings,
       priceImpactPct: impact,
       exact: true,
+      feeBps: fee?.bips ?? 0,
+      feeUsd: fee ? (outUsd * fee.bips) / 10_000 : 0,
     },
   };
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { errorResponse, rateLimit } from "@/lib/http";
+import { tierOf } from "@/lib/sat/gate";
 import { workerAlive } from "@/lib/store/snapshots";
 import { formatAlert, getSubscription, markSent, sendMessage, telegramConfig } from "@/lib/telegram/telegram";
 
@@ -39,6 +40,8 @@ export async function POST(req: Request) {
     if (await workerAlive()) return NextResponse.json({ sent: 0, skipped: "worker" });
     const sub = await getSubscription(token);
     if (!sub) return NextResponse.json({ error: "This Telegram link is no longer active." }, { status: 404 });
+    // Free-tier alerts wait behind holders, which only the worker can schedule.
+    if ((await tierOf(sub.wallet)).telegramDelayMs > 0) return NextResponse.json({ sent: 0, skipped: "tier" });
     let sent = 0;
     for (const alert of alerts.slice(0, MAX_PER_CALL)) {
       if (!(await markSent(token, alert.id))) continue;

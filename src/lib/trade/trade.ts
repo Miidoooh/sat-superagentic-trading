@@ -55,6 +55,9 @@ export interface BuiltTrade {
   exact?: boolean;
   /** Only an approval was returned; build again after it confirms to get an exact quote. */
   needsRebuild?: boolean;
+  /** SAT trade fee taken from the output, in basis points, and its value in USD. */
+  feeBps?: number;
+  feeUsd?: number;
 }
 
 export const EXECUTION_DISABLED = "Execution is disabled: set SAT_ENABLE_TRADING=true to allow trade building.";

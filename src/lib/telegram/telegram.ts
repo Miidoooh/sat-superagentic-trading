@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { DEFAULT_ALERT_SETTINGS, type AlertItem, type AlertSettings } from "../alerts/detect";
 import { RuleListSchema, type Rule } from "../alerts/rules";
+import type { FlowReport } from "../report/flow";
+import type { TierId } from "../sat/tiers";
 import { getKv } from "../store/kv";
 
 /**
@@ -30,7 +32,7 @@ export function telegramConfig(): TelegramConfig | null {
     token,
     username,
     webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || null,
-    siteUrl: (process.env.SAT_SITE_URL || "https://www.satrobinhood.xyz").replace(/\/$/, ""),
+    siteUrl: (process.env.SAT_SITE_URL || "https://sathood.xyz").replace(/\/$/, ""),
   };
 }
 
@@ -50,6 +52,8 @@ export const SubscriptionSchema = z.object({
 export interface Subscription {
   chatId: number;
   username?: string;
+  /** A wallet proven by signature; its SAT holding sets the tier. */
+  wallet?: `0x${string}`;
   settings: AlertSettings;
   follows: string[];
   rules: Rule[];
@@ -77,15 +81,49 @@ async function api<T>(cfg: TelegramConfig, method: string, body: Record<string, 
   return json.result as T;
 }
 
-export async function sendMessage(cfg: TelegramConfig, chatId: number, html: string): Promise<void> {
+/** chatId is a numeric chat, or "@channel" for a public channel the bot admins. */
+export async function sendMessage(cfg: TelegramConfig, chatId: number | string, html: string): Promise<void> {
   await api(cfg, "sendMessage", { chat_id: chatId, text: html, parse_mode: "HTML", disable_web_page_preview: true });
 }
 
 const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-export function formatAlert(alert: AlertItem, siteUrl: string): string {
+export function formatAlert(alert: AlertItem, siteUrl: string, tier: TierId = "holder"): string {
   const link = alert.token ? `${siteUrl}/app?token=${alert.token}` : alert.wallet ? `${siteUrl}/app?view=wallets&wallet=${alert.wallet}` : `${siteUrl}/app`;
-  return `<b>${escape(alert.title)}</b>\n${escape(alert.body)}\n<a href="${link}">Open in SAT</a>`;
+  const upsell = tier === "free" ? `\n<i>SAT holders got this 60s earlier.</i> <a href="${siteUrl}/app?view=sat">Hold SAT</a>` : "";
+  return `<b>${escape(alert.title)}</b>\n${escape(alert.body)}\n<a href="${link}">Open in SAT</a>${upsell}`;
+}
+
+/** Post an image by URL; Telegram fetches it, so the URL must be public. */
+export async function sendPhoto(cfg: TelegramConfig, chatId: number | string, photoUrl: string, captionHtml: string): Promise<void> {
+  await api(cfg, "sendPhoto", { chat_id: chatId, photo: photoUrl, caption: captionHtml, parse_mode: "HTML" });
+}
+
+/** The daily report caption for the alpha channel. */
+export function formatReport(r: FlowReport, siteUrl: string): string {
+  const usd = (n: number) => `$${Math.abs(n) >= 1e6 ? `${(Math.abs(n) / 1e6).toFixed(2)}M` : `${(Math.abs(n) / 1e3).toFixed(1)}K`}`;
+  const lines = [
+    `<b>Robinhood Chain, last 24h</b>`,
+    `${usd(r.totals.volumeUsd)} volume · ${r.totals.trades.toLocaleString("en-US")} trades · ${r.pons.launches} Pons launches`,
+    "",
+    ...r.inflows.slice(0, 3).map((f) => `🟢 ${escape(f.symbol)} +${usd(f.netUsd)} net inflow`),
+    ...r.outflows.slice(0, 2).map((f) => `🔴 ${escape(f.symbol)} −${usd(f.netUsd)} net outflow`),
+    "",
+    `<a href="${siteUrl}/report">Full report</a> · <a href="${siteUrl}/app">Live on SAT</a>`,
+  ];
+  return lines.join("\n");
+}
+
+/** A public alpha-channel post: the alert plus the reason to hold. */
+export function formatAlpha(alert: AlertItem, siteUrl: string): string {
+  const link = alert.token ? `${siteUrl}/app?token=${alert.token}` : `${siteUrl}/app`;
+  return [
+    `<b>${escape(alert.title)}</b>`,
+    escape(alert.body),
+    `<a href="${link}">Chart and trade on SAT</a>`,
+    "",
+    `<i>SAT holders got this 60 seconds ago.</i> <a href="${siteUrl}/app?view=sat">Hold SAT for instant alerts</a>`,
+  ].join("\n");
 }
 
 export async function createLinkCode(): Promise<string> {
@@ -107,10 +145,16 @@ export async function getSubscription(token: string): Promise<Subscription | nul
   return getKv().get<Subscription>(subKey(token));
 }
 
-export async function saveSubscription(token: string, patch: z.infer<typeof SubscriptionSchema>): Promise<Subscription> {
+export async function saveSubscription(
+  token: string,
+  patch: z.infer<typeof SubscriptionSchema> & { wallet?: `0x${string}` | null },
+): Promise<Subscription> {
   const current = await getSubscription(token);
   if (!current) throw new Error("This Telegram link is no longer active. Connect again.");
-  const next: Subscription = { ...current, ...patch, updatedAt: Date.now() };
+  const { wallet, ...rest } = patch;
+  const next: Subscription = { ...current, ...rest, updatedAt: Date.now() };
+  if (wallet === null) delete next.wallet;
+  else if (wallet) next.wallet = wallet;
   await getKv().set(subKey(token), next);
   return next;
 }

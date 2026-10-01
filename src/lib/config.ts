@@ -49,6 +49,15 @@ const EnvSchema = z.object({
   SAT_MIN_LIQUIDITY_USD: z.coerce.number().nonnegative().default(10_000),
   /** Quoted loss versus spot, fees and launch tax included, above which a trade is refused. */
   SAT_MAX_PRICE_IMPACT_PCT: z.coerce.number().positive().max(100).default(15),
+
+  /** The SAT token. Holding it unlocks tiers; price is read from its Uniswap v4 pool. */
+  SAT_TOKEN_ADDRESS: z.preprocess(emptyToUndef, addr.optional()).default("0xbe3f794bfb99399a4ea9cd5acf08529eea6e718a"),
+  /** USD value of SAT a wallet must hold for each tier. */
+  SAT_TIER_HOLDER_USD: z.coerce.number().nonnegative().default(50),
+  SAT_TIER_WHALE_USD: z.coerce.number().nonnegative().default(500),
+  /** Fee on Uniswap trades placed through SAT, taken by the router in the same transaction. Max 100 (1%). */
+  SAT_FEE_BPS: z.coerce.number().int().min(0).max(100).default(50),
+  SAT_FEE_RECIPIENT: z.preprocess(emptyToUndef, addr.optional()).default("0x10Acd70eeEb62dD762F1518D8aC687C77C484a76"),
 });
 
 export type SatConfig = z.infer<typeof EnvSchema>;
@@ -63,6 +72,11 @@ export function getConfig(): SatConfig {
 /** Test helper */
 export function resetConfigCache(): void {
   cached = undefined;
+}
+
+/** The SAT fee in basis points, or 0 when no fee wallet is set. */
+export function tradeFeeBps(cfg = getConfig()): number {
+  return cfg.SAT_FEE_RECIPIENT ? cfg.SAT_FEE_BPS : 0;
 }
 
 export function executionEnabled(cfg = getConfig()): boolean {

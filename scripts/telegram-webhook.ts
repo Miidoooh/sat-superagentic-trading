@@ -7,7 +7,7 @@
  */
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
-const site = (process.env.SAT_SITE_URL || "https://www.satrobinhood.xyz").replace(/\/$/, "");
+const site = (process.env.SAT_SITE_URL || "https://sathood.xyz").replace(/\/$/, "");
 const off = process.argv.includes("off");
 
 async function main() {

@@ -10,6 +10,8 @@ import Logo from "@/components/Logo";
 import PonsTokenPanel from "@/components/PonsTokenPanel";
 import PonsTrenches from "@/components/PonsTrenches";
 import PortfolioView from "@/components/PortfolioView";
+import { SatPill, SatProvider } from "@/components/sat";
+import SatView from "@/components/SatView";
 import TokenList from "@/components/TokenList";
 import TradePanel from "@/components/TradePanel";
 import { WalletProvider, type ChainInfo } from "@/components/wallet";
@@ -27,7 +29,7 @@ interface MarketResponse {
   timeframes: Timeframe[];
   capabilities: ProviderCapabilities;
   chain: ChainInfo;
-  execution: { enabled: boolean; maxTradeNative: number; maxSlippageBps: number };
+  execution: { enabled: boolean; maxTradeNative: number; maxSlippageBps: number; feeBps: number; feeRecipient: string | null };
   agentEnabled: boolean;
   tokens: TokenMarket[];
 }
@@ -42,13 +44,14 @@ const ALL_TF: Timeframe[] = ["5m", "15m", "1h", "4h", "1d"];
 const PONS_TF: Timeframe[] = ["5m", "15m", "1h", "4h"];
 const isAddress = (s: string) => /^0x[0-9a-fA-F]{40}$/.test(s);
 
-type View = "terminal" | "radar" | "trenches" | "wallets" | "portfolio";
+type View = "terminal" | "radar" | "trenches" | "wallets" | "portfolio" | "sat";
 const VIEWS: { id: View; label: string; isNew?: boolean }[] = [
   { id: "terminal", label: "Terminal" },
   { id: "radar", label: "Whale Radar" },
   { id: "trenches", label: "Pons Trenches" },
   { id: "wallets", label: "Smart Money" },
-  { id: "portfolio", label: "Portfolio", isNew: true },
+  { id: "portfolio", label: "Portfolio" },
+  { id: "sat", label: "Hold SAT", isNew: true },
 ];
 const isView = (v: string | null): v is View => VIEWS.some((x) => x.id === v);
 
@@ -188,6 +191,7 @@ export default function Terminal() {
 
   return (
     <WalletProvider chain={market?.chain}>
+    <SatProvider>
     <div className="app">
       <header className="topbar">
         <Link href="/" className="brand">
@@ -210,9 +214,11 @@ export default function Terminal() {
           ))}
         </div>
         <div className="spacer" />
+        <SatPill onOpen={() => switchView("sat")} />
         <AlertsCenter
           onOpenToken={(token, url) => void openToken(token, url)}
           onOpenWallet={openWallet}
+          onOpenSat={() => switchView("sat")}
           agentEnabled={market?.agentEnabled ?? false}
         />
         {market && !market.execution.enabled && (
@@ -246,6 +252,7 @@ export default function Terminal() {
         />
       )}
       {view === "portfolio" && <PortfolioView explorer={explorer} onOpenToken={(token) => void openToken(token)} />}
+      {view === "sat" && <SatView explorer={explorer} feeWallet={market?.execution.feeRecipient ?? null} />}
 
       <div className="grid" hidden={view !== "terminal"}>
         <section className="col markets">
@@ -417,6 +424,7 @@ export default function Terminal() {
         </section>
       </div>
     </div>
+    </SatProvider>
     </WalletProvider>
   );
 }
