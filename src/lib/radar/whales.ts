@@ -256,6 +256,12 @@ function totalsOf(trades: PricedTrade[]): Record<RadarVenue, VenueTotals> {
   return totals;
 }
 
+/** Shared snapshots are stored at full length and trimmed per request. */
+export const RADAR_MAX_TRADES = MAX_TRADES;
+export const RADAR_FRESH_MS = 10 * 1000;
+export { RADAR_SIZES } from "../alerts/detect";
+export const radarKey = (venue: string, minUsd: number) => `radar:${venue}:${minUsd}`;
+
 export interface RadarOptions {
   minUsd: number;
   venue: "all" | RadarVenue;

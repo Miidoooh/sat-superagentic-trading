@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getProvider } from "@/lib/data/provider";
 import { RobinhoodChainProvider } from "@/lib/data/robinhood";
 import { errorResponse } from "@/lib/http";
-import { getTrenches } from "@/lib/radar/trenches";
+import { getTrenches, TRENCHES_FRESH_MS, TRENCHES_KEY } from "@/lib/radar/trenches";
+import { sharedSnapshot } from "@/lib/store/snapshots";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -14,7 +15,7 @@ export async function GET() {
     return NextResponse.json({ error: "Pons Trenches needs the live Robinhood Chain provider" }, { status: 501 });
   }
   try {
-    const trenches = await getTrenches(provider);
+    const trenches = await sharedSnapshot(TRENCHES_KEY, TRENCHES_FRESH_MS, () => getTrenches(provider));
     return NextResponse.json(trenches, {
       headers: { "cache-control": "public, s-maxage=10, stale-while-revalidate=30" },
     });

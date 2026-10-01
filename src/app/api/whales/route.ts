@@ -3,7 +3,8 @@ import { z } from "zod";
 import { getProvider } from "@/lib/data/provider";
 import { RobinhoodChainProvider } from "@/lib/data/robinhood";
 import { errorResponse } from "@/lib/http";
-import { getWhaleRadar } from "@/lib/radar/whales";
+import { getWhaleRadar, RADAR_FRESH_MS, RADAR_MAX_TRADES, radarKey } from "@/lib/radar/whales";
+import { sharedSnapshot } from "@/lib/store/snapshots";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -29,7 +30,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Whale Radar needs the live Robinhood Chain provider" }, { status: 501 });
   }
   try {
-    const radar = await getWhaleRadar(provider, parsed.data);
+    const { minUsd, venue, limit, wallets } = parsed.data;
+    // Followed-wallet reads are per user; everything else is shared across instances.
+    const radar = wallets.length
+      ? await getWhaleRadar(provider, parsed.data)
+      : await sharedSnapshot(radarKey(venue, minUsd), RADAR_FRESH_MS, () =>
+          getWhaleRadar(provider, { minUsd, venue, limit: RADAR_MAX_TRADES }),
+        ).then((snap) => ({ ...snap, trades: snap.trades.slice(0, limit) }));
     return NextResponse.json(radar, {
       headers: { "cache-control": "public, s-maxage=8, stale-while-revalidate=30" },
     });

@@ -1,4 +1,4 @@
-import { createPublicClient, defineChain, http, type PublicClient } from "viem";
+import { createPublicClient, defineChain, fallback, http, type HttpTransportConfig, type PublicClient, type Transport } from "viem";
 import { getConfig } from "../config";
 import { MULTICALL3, ROBINHOOD_MAINNET } from "./constants";
 
@@ -18,13 +18,24 @@ export function getChain() {
   });
 }
 
+/** The primary RPC, then each configured backup in order. */
+function transportFor(urls: string[], opts: HttpTransportConfig): Transport {
+  const unique = [...new Set(urls)];
+  if (unique.length === 1) return http(unique[0], opts);
+  return fallback(
+    unique.map((u) => http(u, opts)),
+    { retryCount: 1 },
+  );
+}
+
 let client: PublicClient | undefined;
 
 export function getPublicClient(): PublicClient {
   if (!client) {
+    const cfg = getConfig();
     client = createPublicClient({
       chain: getChain(),
-      transport: http(getConfig().RH_RPC_URL, {
+      transport: transportFor([cfg.RH_RPC_URL, ...cfg.RH_RPC_FALLBACK_URLS], {
         timeout: 20_000,
         // The public endpoint returns 429 above roughly 50 calls per request.
         batch: { batchSize: 40, wait: 20 },
@@ -47,9 +58,15 @@ let logsClient: PublicClient | undefined;
  */
 export function getLogsClient(): PublicClient {
   if (!logsClient) {
+    const cfg = getConfig();
+    const primary = cfg.RH_LOGS_RPC_URL ?? cfg.RH_RPC_URL;
     logsClient = createPublicClient({
       chain: getChain(),
-      transport: http(getConfig().RH_RPC_URL, { timeout: 45_000, retryCount: 2, retryDelay: 600 }),
+      transport: transportFor([primary, cfg.RH_RPC_URL, ...cfg.RH_RPC_FALLBACK_URLS], {
+        timeout: 45_000,
+        retryCount: 2,
+        retryDelay: 600,
+      }),
     }) as PublicClient;
   }
   return logsClient;

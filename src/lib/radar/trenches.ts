@@ -17,6 +17,8 @@ import { getTokenMeta } from "../data/tokenMeta";
 import { unitsToNumber } from "./whales";
 
 const TRENCHES_TTL = 6 * 1000;
+export const TRENCHES_KEY = "trenches";
+export const TRENCHES_FRESH_MS = 12 * 1000;
 const NEWEST = 30;
 const GRADUATING = 24;
 const HOT = 18;

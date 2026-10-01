@@ -3,7 +3,8 @@ import { z } from "zod";
 import { getProvider } from "@/lib/data/provider";
 import { RobinhoodChainProvider } from "@/lib/data/robinhood";
 import { errorResponse } from "@/lib/http";
-import { getLeaderboard, getWalletActivity } from "@/lib/radar/wallets";
+import { getLeaderboard, getWalletActivity, LEADERBOARD_FRESH_MS, LEADERBOARD_KEY } from "@/lib/radar/wallets";
+import { sharedSnapshot } from "@/lib/store/snapshots";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -26,7 +27,7 @@ export async function GET(req: Request) {
   try {
     const body = parsed.data.address
       ? await getWalletActivity(provider, parsed.data.address)
-      : await getLeaderboard(provider);
+      : await sharedSnapshot(LEADERBOARD_KEY, LEADERBOARD_FRESH_MS, () => getLeaderboard(provider));
     return NextResponse.json(body, { headers: { "cache-control": "public, s-maxage=15, stale-while-revalidate=60" } });
   } catch (err) {
     return errorResponse(err, 503);

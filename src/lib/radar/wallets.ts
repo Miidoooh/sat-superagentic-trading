@@ -17,6 +17,8 @@ import {
 
 const WALLET_TTL = 20 * 1000;
 const LEADERBOARD_TTL = 30 * 1000;
+export const LEADERBOARD_KEY = "leaderboard";
+export const LEADERBOARD_FRESH_MS = 45 * 1000;
 /** How long the leaderboard waits on a cold 24h fill before answering from the last 30 minutes. */
 const DAY_WAIT_MS = 8 * 1000;
 const TOP_TRADERS = 50;

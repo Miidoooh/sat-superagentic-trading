@@ -15,7 +15,21 @@ const EnvSchema = z.object({
   /** Defaults target Robinhood Chain mainnet. */
   RH_CHAIN_ID: z.coerce.number().int().positive().default(ROBINHOOD_MAINNET.chainId),
   RH_CHAIN_NAME: z.string().default(ROBINHOOD_MAINNET.name),
+  /** Server-side RPC. May carry a provider API key, so it is never sent to the browser. */
   RH_RPC_URL: z.string().url().default(ROBINHOOD_MAINNET.rpcUrl),
+  /** Comma-separated backup RPCs tried in order when the primary fails or rate-limits. */
+  RH_RPC_FALLBACK_URLS: z.preprocess(
+    emptyToUndef,
+    z
+      .string()
+      .optional()
+      .transform((v) => (v ? v.split(",").map((s) => s.trim()).filter(Boolean) : []))
+      .pipe(z.array(z.string().url())),
+  ),
+  /** Optional separate endpoint for heavy eth_getLogs reads. */
+  RH_LOGS_RPC_URL: z.preprocess(emptyToUndef, z.string().url().optional()),
+  /** RPC handed to browser wallets when adding the chain. Keep this keyless. */
+  RH_PUBLIC_RPC_URL: z.string().url().default(ROBINHOOD_MAINNET.rpcUrl),
   RH_EXPLORER_URL: z.string().url().default(ROBINHOOD_MAINNET.explorerUrl),
   RH_NATIVE_SYMBOL: z.string().default(ROBINHOOD_MAINNET.nativeSymbol),
 
@@ -33,6 +47,8 @@ const EnvSchema = z.object({
   SAT_MAX_TRADE_NATIVE: z.coerce.number().positive().default(0.05),
   SAT_MAX_SLIPPAGE_BPS: z.coerce.number().int().min(1).max(1000).default(100),
   SAT_MIN_LIQUIDITY_USD: z.coerce.number().nonnegative().default(10_000),
+  /** Quoted loss versus spot, fees and launch tax included, above which a trade is refused. */
+  SAT_MAX_PRICE_IMPACT_PCT: z.coerce.number().positive().max(100).default(15),
 });
 
 export type SatConfig = z.infer<typeof EnvSchema>;

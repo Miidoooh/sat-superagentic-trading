@@ -5,11 +5,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import AgentChat from "@/components/AgentChat";
 import AlertsCenter from "@/components/AlertsCenter";
 import ChartPanel from "@/components/ChartPanel";
+import ConnectButton from "@/components/ConnectButton";
 import Logo from "@/components/Logo";
 import PonsTokenPanel from "@/components/PonsTokenPanel";
 import PonsTrenches from "@/components/PonsTrenches";
+import PortfolioView from "@/components/PortfolioView";
 import TokenList from "@/components/TokenList";
-import type { ChainInfo } from "@/components/TradeCard";
+import TradePanel from "@/components/TradePanel";
+import { WalletProvider, type ChainInfo } from "@/components/wallet";
 import WalletTracker from "@/components/WalletTracker";
 import WhaleRadar from "@/components/WhaleRadar";
 import { ponsTokenUrl, ROBINHOOD_MAINNET } from "@/lib/chain/constants";
@@ -17,6 +20,7 @@ import { fmtAge, fmtNum, fmtPct, fmtPrice, fmtUsd } from "@/lib/format";
 import type { Candle, ChartAnalysis, ProviderCapabilities, Timeframe, TokenMarket } from "@/lib/types";
 import "../live.css";
 import "../smart.css";
+import "../v2.css";
 
 interface MarketResponse {
   source: string;
@@ -38,13 +42,15 @@ const ALL_TF: Timeframe[] = ["5m", "15m", "1h", "4h", "1d"];
 const PONS_TF: Timeframe[] = ["5m", "15m", "1h", "4h"];
 const isAddress = (s: string) => /^0x[0-9a-fA-F]{40}$/.test(s);
 
-type View = "terminal" | "radar" | "trenches" | "wallets";
+type View = "terminal" | "radar" | "trenches" | "wallets" | "portfolio";
 const VIEWS: { id: View; label: string; isNew?: boolean }[] = [
   { id: "terminal", label: "Terminal" },
   { id: "radar", label: "Whale Radar" },
   { id: "trenches", label: "Pons Trenches" },
-  { id: "wallets", label: "Smart Money", isNew: true },
+  { id: "wallets", label: "Smart Money" },
+  { id: "portfolio", label: "Portfolio", isNew: true },
 ];
+const isView = (v: string | null): v is View => VIEWS.some((x) => x.id === v);
 
 export default function Terminal() {
   const [view, setView] = useState<View>("terminal");
@@ -58,13 +64,17 @@ export default function Terminal() {
   const [chartError, setChartError] = useState("");
   const [loadError, setLoadError] = useState("");
   const [chartLoading, setChartLoading] = useState(false);
+  /** A token to open once markets load, from a ?token= link (Telegram alerts use these). */
+  const [linkedToken, setLinkedToken] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const v = params.get("view");
-    if (v === "radar" || v === "trenches" || v === "wallets") setView(v);
+    if (isView(v)) setView(v);
     const w = params.get("wallet");
     if (w && isAddress(w)) setWallet(w);
+    const t = params.get("token");
+    if (t && isAddress(t)) setLinkedToken(t);
   }, []);
 
   const switchView = useCallback((next: View, walletParam?: string) => {
@@ -74,6 +84,7 @@ export default function Terminal() {
     else url.searchParams.set("view", next);
     if (walletParam) url.searchParams.set("wallet", walletParam);
     else if (next !== "wallets") url.searchParams.delete("wallet");
+    url.searchParams.delete("token");
     window.history.replaceState(null, "", url);
   }, []);
 
@@ -133,6 +144,12 @@ export default function Terminal() {
       .catch((e: Error) => setLoadError(e.message));
   }, []);
 
+  useEffect(() => {
+    if (!market || !linkedToken) return;
+    setLinkedToken(null);
+    void openToken(linkedToken);
+  }, [market, linkedToken, openToken]);
+
   const loadChart = useCallback(async (token: string, tf: Timeframe) => {
     if (!token) return;
     setChartLoading(true);
@@ -170,6 +187,7 @@ export default function Terminal() {
   const explorer = market?.chain.explorer ?? ROBINHOOD_MAINNET.explorerUrl;
 
   return (
+    <WalletProvider chain={market?.chain}>
     <div className="app">
       <header className="topbar">
         <Link href="/" className="brand">
@@ -192,21 +210,17 @@ export default function Terminal() {
           ))}
         </div>
         <div className="spacer" />
-        <AlertsCenter onOpenToken={(token, url) => void openToken(token, url)} onOpenWallet={openWallet} />
-        {market?.execution.enabled ? (
-          <span className="pill ok">
-            trading on · max {market.execution.maxTradeNative} {market.chain.symbol}
-          </span>
-        ) : (
-          <span className="pill quiet" title="Trade execution is disabled; the agent only proposes trades">
-            read-only
+        <AlertsCenter
+          onOpenToken={(token, url) => void openToken(token, url)}
+          onOpenWallet={openWallet}
+          agentEnabled={market?.agentEnabled ?? false}
+        />
+        {market && !market.execution.enabled && (
+          <span className="pill quiet" title="Trade execution is disabled on this deployment; SAT only previews trades">
+            preview only
           </span>
         )}
-        {market && (
-          <a className="pill quiet" href={market.chain.explorer} target="_blank" rel="noreferrer noopener" title="Open the block explorer">
-            explorer ↗
-          </a>
-        )}
+        <ConnectButton onPortfolio={() => switchView("portfolio")} />
       </header>
 
       {loadError && (
@@ -231,6 +245,7 @@ export default function Terminal() {
           onOpenToken={(token, venue) => void openToken(token, venue === "pons" ? ponsTokenUrl(token) : undefined)}
         />
       )}
+      {view === "portfolio" && <PortfolioView explorer={explorer} onOpenToken={(token) => void openToken(token)} />}
 
       <div className="grid" hidden={view !== "terminal"}>
         <section className="col markets">
@@ -378,7 +393,14 @@ export default function Terminal() {
           )}
         </section>
 
-        <section className="col">
+        <section className="col side">
+          <TradePanel
+            market={current}
+            executionEnabled={market?.execution.enabled ?? false}
+            maxTradeNative={market?.execution.maxTradeNative ?? 0}
+            maxSlippageBps={market?.execution.maxSlippageBps ?? 100}
+            nativeSymbol={market?.chain.symbol ?? "ETH"}
+          />
           <div className="col-head">
             Agent
           </div>
@@ -395,5 +417,6 @@ export default function Terminal() {
         </section>
       </div>
     </div>
+    </WalletProvider>
   );
 }

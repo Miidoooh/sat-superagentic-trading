@@ -37,6 +37,7 @@ export interface TxStep {
 }
 
 export interface BuiltTrade {
+  venue?: "uniswap-v3" | "pons";
   side: TradeIntent["side"];
   symbol: string;
   tokenAddress: `0x${string}`;
@@ -48,7 +49,15 @@ export interface BuiltTrade {
   notionalUsd: number;
   steps: TxStep[];
   warnings: string[];
+  /** Quoted loss versus spot in percent, fees included. Null when unknown. */
+  priceImpactPct?: number | null;
+  /** True when the output was simulated against live contracts. */
+  exact?: boolean;
+  /** Only an approval was returned; build again after it confirms to get an exact quote. */
+  needsRebuild?: boolean;
 }
+
+export const EXECUTION_DISABLED = "Execution is disabled: set SAT_ENABLE_TRADING=true to allow trade building.";
 
 export function validateIntent(
   intent: TradeIntent,
@@ -58,7 +67,7 @@ export function validateIntent(
 ): string[] {
   const errors: string[] = [];
   if (!executionEnabled(cfg)) {
-    errors.push("Execution is disabled: set SAT_ENABLE_TRADING=true to allow trade building.");
+    errors.push(EXECUTION_DISABLED);
   }
   const slippage = intent.slippageBps ?? cfg.SAT_MAX_SLIPPAGE_BPS;
   if (slippage > cfg.SAT_MAX_SLIPPAGE_BPS) {

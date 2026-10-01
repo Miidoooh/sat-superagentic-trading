@@ -1,18 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { createPublicClient, createWalletClient, custom, defineChain, type EIP1193Provider } from "viem";
 import type { TradeProposal } from "@/lib/agent/tools";
-import type { BuiltTrade } from "@/lib/trade/trade";
 import { fmtUsd } from "@/lib/format";
+import { executeTrade } from "./tradeExec";
+import { useWallet, type ChainInfo } from "./wallet";
 
-export interface ChainInfo {
-  id: number;
-  name: string;
-  rpcUrl: string;
-  explorer: string;
-  symbol: string;
-}
+export type { ChainInfo };
 
 interface Props {
   proposal: TradeProposal;
@@ -20,64 +14,20 @@ interface Props {
   executionEnabled: boolean;
 }
 
-type Status = "idle" | "building" | "signing" | "done" | "error";
+type Status = "idle" | "working" | "done" | "error";
 
-export default function TradeCard({ proposal: p, chain, executionEnabled }: Props) {
+export default function TradeCard({ proposal: p, executionEnabled }: Props) {
+  const wallet = useWallet();
   const [status, setStatus] = useState<Status>("idle");
   const [log, setLog] = useState<{ text: string; href?: string }[]>([]);
 
   const push = (text: string, href?: string) => setLog((l) => [...l, { text, href }]);
 
   async function execute() {
-    if (!chain) return;
-    const ethereum = (window as unknown as { ethereum?: EIP1193Provider }).ethereum;
-    if (!ethereum) {
-      setStatus("error");
-      push("No browser wallet found. Install a wallet that supports EIP-1193.");
-      return;
-    }
+    setStatus("working");
+    setLog([]);
     try {
-      setStatus("building");
-      const viemChain = defineChain({
-        id: chain.id,
-        name: chain.name,
-        nativeCurrency: { name: chain.symbol, symbol: chain.symbol, decimals: 18 },
-        rpcUrls: { default: { http: [chain.rpcUrl] } },
-        blockExplorers: { default: { name: "Explorer", url: chain.explorer } },
-      });
-      const wallet = createWalletClient({ chain: viemChain, transport: custom(ethereum) });
-      const [account] = await wallet.requestAddresses();
-      try {
-        await wallet.switchChain({ id: chain.id });
-      } catch {
-        await wallet.addChain({ chain: viemChain });
-        await wallet.switchChain({ id: chain.id });
-      }
-
-      // The server re-checks every guardrail and returns the calldata to sign.
-      const res = await fetch("/api/trade/build", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ intent: p.intent, wallet: account }),
-      });
-      const built = (await res.json()) as BuiltTrade | { error: string };
-      if (!res.ok || "error" in built) throw new Error("error" in built ? built.error : "Build failed");
-
-      setStatus("signing");
-      const publicClient = createPublicClient({ chain: viemChain, transport: custom(ethereum) });
-      for (const step of built.steps) {
-        push(`Confirm in wallet: ${step.label}`);
-        const hash = await wallet.sendTransaction({
-          account,
-          chain: viemChain,
-          to: step.to,
-          data: step.data,
-          value: BigInt(step.value),
-        });
-        const receipt = await publicClient.waitForTransactionReceipt({ hash });
-        if (receipt.status !== "success") throw new Error(`Transaction reverted: ${hash}`);
-        push(`Confirmed ${hash.slice(0, 10)}…`, `${chain.explorer}/tx/${hash}`);
-      }
+      await executeTrade(p.intent, wallet, push);
       setStatus("done");
     } catch (err) {
       setStatus("error");
@@ -85,7 +35,7 @@ export default function TradeCard({ proposal: p, chain, executionEnabled }: Prop
     }
   }
 
-  const busy = status === "building" || status === "signing";
+  const busy = status === "working";
   return (
     <div className={`artifact ${p.ok ? "" : "bad"}`}>
       <div className="artifact-head">
@@ -136,9 +86,11 @@ export default function TradeCard({ proposal: p, chain, executionEnabled }: Prop
               ? "Done"
               : busy
                 ? "Waiting on wallet…"
-                : status === "error"
-                  ? "Retry in wallet"
-                  : "Review & sign in wallet"}
+                : !wallet.address
+                  ? "Connect wallet & sign"
+                  : status === "error"
+                    ? "Retry in wallet"
+                    : "Review & sign in wallet"}
           </button>
         )}
         {p.ok && !executionEnabled && (

@@ -8,7 +8,8 @@ import { getWhaleRadar } from "../radar/whales";
 import { getOnchainSnapshot, getWalletBalances } from "../chain/onchain";
 import { ScanCriteriaSchema } from "../scanner/criteria";
 import { scanTokens } from "../scanner/scan";
-import { buildTrade, TradeIntentSchema, validateIntent } from "../trade/trade";
+import { prepareTrade } from "../trade/prepare";
+import { TradeIntentSchema } from "../trade/trade";
 import type { TokenMarket, Timeframe } from "../types";
 
 export type Artifact =
@@ -379,7 +380,10 @@ const tools: ToolDef[] = [
       properties: {
         side: { type: "string", enum: ["buy", "sell"] },
         token: { type: "string", description: "0x token address (use list_market/analyze_chart to find it)" },
-        amount: { type: "number", description: "buy: native asset to spend. sell: token amount to sell." },
+        amount: {
+          type: "number",
+          description: "buy: amount of the pay asset to spend (ETH, or the curve's quote token for ERC-20-paired Pons launches). sell: token amount to sell.",
+        },
         slippageBps: { type: "integer", minimum: 1, maximum: 1000 },
         rationale: { type: "string" },
       },
@@ -388,19 +392,13 @@ const tools: ToolDef[] = [
     },
     async run(raw) {
       const intent = TradeIntentSchema.parse(raw);
-      const p = getProvider();
       const market = await resolve(intent.token);
-      const nativeUsd = await p.nativeUsd();
-      let errors = validateIntent(intent, market, nativeUsd);
+      const { trade: built, errors } = await prepareTrade(
+        { ...intent, token: market.token.address },
+        { wallet: null, requireExecution: false },
+      );
       let preview: TradeProposal["preview"];
-      if (!p.capabilities.liveTrading) {
-        errors = [...errors, `The ${p.source} data source is not backed by real pools; trades cannot be executed.`];
-      }
-      if (errors.length === 0) {
-        const built = buildTrade(intent, market, nativeUsd, {
-          wallet: "0x000000000000000000000000000000000000dEaD",
-          currentAllowance: 0n,
-        });
+      if (built) {
         preview = {
           amountIn: built.amountIn,
           estimatedOut: built.estimatedOut,
