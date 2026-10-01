@@ -1,5 +1,6 @@
 import { parseAbi } from "viem";
 import { getPublicClient } from "../chain/client";
+import { multicallStrict } from "../chain/multicall";
 
 export interface TokenMeta {
   symbol: string;
@@ -22,14 +23,16 @@ export async function getTokenMeta(addresses: readonly `0x${string}`[]): Promise
   const client = getPublicClient();
   for (let i = 0; i < missing.length; i += CHUNK / 3) {
     const slice = missing.slice(i, i + CHUNK / 3);
-    const results = await client.multicall({
-      contracts: slice.flatMap((address) => [
+    // A rate-limited batch must not be remembered as "these tokens have no metadata".
+    const results = await multicallStrict(
+      client,
+      slice.flatMap((address) => [
         { address, abi: metaAbi, functionName: "symbol" as const },
         { address, abi: metaAbi, functionName: "name" as const },
         { address, abi: metaAbi, functionName: "decimals" as const },
       ]),
-      allowFailure: true,
-    });
+    ).catch(() => null);
+    if (!results) continue;
     slice.forEach((address, j) => {
       const [symbol, name, decimals] = results.slice(j * 3, j * 3 + 3);
       if (symbol.status !== "success" || name.status !== "success" || decimals.status !== "success") {

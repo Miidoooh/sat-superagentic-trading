@@ -9,6 +9,7 @@ import { candlesFromPricePoints } from "./candles";
 import { getPoolVolumes24h } from "../chain/poolVolume";
 import { listPonsMarkets, type QuoteBook } from "./pons";
 import { ponsCandles, ponsMarket, PONS_TIMEFRAMES } from "./ponsToken";
+import { graduatedCandles, graduatedMarket } from "./v4";
 
 /**
  * Live Robinhood Chain mainnet data, assembled from three public sources:
@@ -255,8 +256,12 @@ export class RobinhoodChainProvider implements MarketDataProvider {
     if (byAddress) return byAddress;
     // Any live Pons curve resolves by address, even outside the listed top curves.
     if (/^0x[0-9a-f]{40}$/.test(q)) {
-      const pons = await ponsMarket(q, await this.quoteBook()).catch(() => null);
+      const book = await this.quoteBook();
+      const pons = await ponsMarket(q, book).catch(() => null);
       if (pons) return pons.market;
+      // Graduated launches live on in their Uniswap v4 pool.
+      const graduated = await graduatedMarket(q, book).catch(() => null);
+      if (graduated) return graduated.market;
     }
     // A launch can reuse a stock ticker. Prefer the Uniswap market for a bare symbol.
     const bySymbol = all.filter((t) => t.token.symbol.toLowerCase() === q);
@@ -277,6 +282,7 @@ export class RobinhoodChainProvider implements MarketDataProvider {
     if (!this.timeframesFor(token).includes(timeframe)) {
       throw new Error(`${token.token.symbol} supports ${this.timeframesFor(token).join(", ")} candles only`);
     }
+    if (token.graduated) return graduatedCandles(token, await this.quoteBook(), timeframe, limit);
     if (token.venue === "pons") return ponsCandles(token, await this.quoteBook(), timeframe, limit);
     const feeds = await getFeeds();
     const feed = feeds.get(token.token.symbol);

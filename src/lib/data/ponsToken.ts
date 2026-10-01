@@ -9,6 +9,7 @@ import { candlesFromPricePoints } from "./candles";
 import { curveMarket, findLaunch, quoteOf, readCurveStates, type PonsLaunch, type QuoteBook, type QuoteInfo } from "./pons";
 import { readCurveTrades, type RawCurveTrade } from "./ponsFlow";
 import { safetyScore, type SafetyScore } from "../safety/score";
+import { getPonsProfiles } from "./ponsProfile";
 import { getTokenMeta } from "./tokenMeta";
 
 const TRANSFER = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
@@ -55,7 +56,7 @@ export interface PonsTokenDetail {
   safety: SafetyScore;
 }
 
-interface TransferItem {
+export interface TransferItem {
   block: bigint;
   from: string;
   to: string;
@@ -87,7 +88,7 @@ async function curveTrades(launch: PonsLaunch): Promise<RawCurveTrade[]> {
   });
 }
 
-async function transfers(launch: PonsLaunch): Promise<TransferItem[]> {
+export async function transfers(launch: PonsLaunch): Promise<TransferItem[]> {
   const window = transferWindows.get(launch.token.toLowerCase(), () =>
     new RollingWindow<TransferItem>(
       LIFETIME_BLOCKS,
@@ -163,9 +164,11 @@ export async function ponsMarket(token: string, book: QuoteBook): Promise<{ mark
   if (!launch) return null;
   const [state] = await readCurveStates([launch], book);
   if (!state) return null;
-  const meta = (await getTokenMeta([launch.token])).get(launch.token.toLowerCase());
-  if (!meta) return null;
-  return { market: curveMarket(state, meta), launch };
+  const key = launch.token.toLowerCase();
+  const [meta, profiles] = await Promise.all([getTokenMeta([launch.token]), getPonsProfiles([launch.token]).catch(() => new Map())]);
+  const m = meta.get(key);
+  if (!m) return null;
+  return { market: curveMarket(state, m, profiles.get(key)), launch };
 }
 
 export async function ponsCandles(market: TokenMarket, book: QuoteBook, timeframe: Timeframe, limit: number): Promise<Candle[]> {

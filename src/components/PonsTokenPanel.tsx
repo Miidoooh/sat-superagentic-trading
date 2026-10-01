@@ -6,6 +6,7 @@ import { fmtAgo, fmtPrice, fmtUsd } from "@/lib/format";
 import type { PonsTokenDetail } from "@/lib/data/ponsToken";
 import type { SafetyScore } from "@/lib/safety/score";
 import { shortAddr } from "./follows";
+import { SocialLinks, TokenAvatar } from "./TokenAvatar";
 import { usePoll } from "./usePoll";
 
 interface Props {
@@ -56,6 +57,19 @@ export default function PonsTokenPanel({ token, explorer, onWallet }: Props) {
 
   return (
     <div className="pons-panel">
+      {(data.market.profile?.description || data.market.profile?.socials) && (
+        <div className="token-about">
+          <TokenAvatar src={data.market.token.logoUrl} symbol={data.market.token.symbol} seed={data.market.token.address} size={44} />
+          <div className="token-about-body">
+            <div className="token-about-head">
+              <strong>{data.market.token.name}</strong>
+              <span className="dim mono">${data.market.token.symbol}</span>
+              <SocialLinks socials={data.market.profile?.socials} size={15} />
+            </div>
+            {data.market.profile?.description && <p className="muted">{data.market.profile.description}</p>}
+          </div>
+        </div>
+      )}
       {data.safety && <SafetyCard safety={data.safety} />}
       <div className="trench-stats">
         {curve && (

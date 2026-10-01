@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getProvider } from "@/lib/data/provider";
 import { ponsTokenDetail } from "@/lib/data/ponsToken";
 import { RobinhoodChainProvider } from "@/lib/data/robinhood";
+import { graduatedDetail } from "@/lib/data/v4";
 import { errorResponse } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -19,8 +20,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Pons token pages need the live Robinhood Chain provider" }, { status: 501 });
   }
   try {
-    const detail = await ponsTokenDetail(parsed.data.address, await provider.quoteBook());
-    if (!detail) return NextResponse.json({ error: "Not a live Pons curve (it may have graduated)" }, { status: 404 });
+    const book = await provider.quoteBook();
+    const detail = (await ponsTokenDetail(parsed.data.address, book)) ?? (await graduatedDetail(parsed.data.address, book));
+    if (!detail) return NextResponse.json({ error: "Not a Pons launch" }, { status: 404 });
     return NextResponse.json(detail, { headers: { "cache-control": "public, s-maxage=8, stale-while-revalidate=30" } });
   } catch (err) {
     return errorResponse(err, 503);

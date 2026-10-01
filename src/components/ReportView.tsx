@@ -51,7 +51,8 @@ export default function ReportView() {
     return () => clearInterval(t);
   }, []);
 
-  const url = typeof window !== "undefined" ? `${window.location.origin}/report` : "https://sathood.xyz/report";
+  const [url, setUrl] = useState("https://sathood.xyz/report");
+  useEffect(() => setUrl(`${window.location.origin}/report`), []);
   const lead = r?.inflows[0];
   const post = r
     ? `Robinhood Chain, last 24h by @sat_hood:\n\n${fmtUsd(r.totals.volumeUsd, { compact: true })} volume · ${r.totals.trades.toLocaleString("en-US")} trades · ${r.pons.launches} Pons launches${lead ? `\nMoney flowing into $${lead.symbol} (+${fmtUsd(lead.netUsd, { compact: true })})` : ""}\n\n`

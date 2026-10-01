@@ -1,7 +1,7 @@
 import { encodeAbiParameters, erc20Abi, getAddress, hexToBigInt, keccak256, parseAbi, parseAbiItem } from "viem";
 import { cache } from "../cache";
 import { getLogsClient, getPublicClient } from "../chain/client";
-import { ponsTokenUrl, USDG } from "../chain/constants";
+import { ponsTokenUrl, USDG, V4_POOL_MANAGER } from "../chain/constants";
 import { blockClock, blocksFor, blockTime, RollingWindow, spanned } from "../chain/logs";
 import { getConfig } from "../config";
 import { nextTier, tierFor, type TierId, type TierThresholds } from "./tiers";
@@ -12,7 +12,7 @@ import { nextTier, tierFor, type TierId, type TierThresholds } from "./tiers";
  * slot0 storage with extsload and activity from Swap events filtered by pool id.
  */
 
-export const V4_POOL_MANAGER = "0x8366a39CC670B4001A1121B8F6A443A643e40951" as const;
+export { V4_POOL_MANAGER };
 const POOLS_SLOT = 6n;
 
 export interface V4PoolKey {

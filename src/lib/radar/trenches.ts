@@ -13,6 +13,7 @@ import {
 } from "../data/pons";
 import { FLOW_WINDOW_SECONDS, recentCurveTrades, type RawCurveTrade } from "../data/ponsFlow";
 import type { RobinhoodChainProvider } from "../data/robinhood";
+import { getPonsProfiles, type PonsProfile, type PonsSocials } from "../data/ponsProfile";
 import { getTokenMeta } from "../data/tokenMeta";
 import { unitsToNumber } from "./whales";
 
@@ -45,12 +46,15 @@ export interface TrenchCard {
   progressPct: number;
   flow: CurveFlow;
   url: string;
+  logoUrl?: string;
+  socials?: PonsSocials;
 }
 
 export interface GraduatedCard {
   token: `0x${string}`;
   symbol: string;
   name: string;
+  logoUrl?: string;
   graduatedAt: number;
   liquidityUsd: number | null;
   quoteSymbol: string;
@@ -143,20 +147,22 @@ async function build(provider: RobinhoodChainProvider): Promise<TrenchesSnapshot
     .filter((s): s is CurveState => Boolean(s));
   const grads = graduations.slice(0, GRADUATED);
 
-  const meta = await getTokenMeta([
-    ...newest.map((s) => s.launch.token),
-    ...graduating.map((s) => s.launch.token),
-    ...hot.map((s) => s.launch.token),
-    ...grads.map((g) => g.token),
-  ]).catch(() => new Map());
+  const shown = [...newest.map((s) => s.launch.token), ...graduating.map((s) => s.launch.token), ...hot.map((s) => s.launch.token), ...grads.map((g) => g.token)];
+  const [meta, profiles] = await Promise.all([
+    getTokenMeta(shown).catch(() => new Map()),
+    getPonsProfiles(shown).catch(() => new Map<string, PonsProfile>()),
+  ]);
 
   const card = (s: CurveState): TrenchCard => {
     const m = meta.get(s.launch.token.toLowerCase());
+    const p = profiles.get(s.launch.token.toLowerCase());
     return {
       token: s.launch.token,
       curve: s.launch.curve,
       symbol: m?.symbol ?? `${s.launch.token.slice(0, 6)}…`,
       name: m?.name ?? "",
+      logoUrl: p?.logoUrl ?? undefined,
+      socials: p?.socials,
       deployer: s.launch.deployer,
       launchedAt: blockTime(clock, s.launch.block),
       quoteSymbol: s.quote.symbol,
@@ -178,6 +184,7 @@ async function build(provider: RobinhoodChainProvider): Promise<TrenchesSnapshot
       token: g.token,
       symbol: m?.symbol ?? `${g.token.slice(0, 6)}…`,
       name: m?.name ?? "",
+      logoUrl: profiles.get(g.token.toLowerCase())?.logoUrl ?? undefined,
       graduatedAt: blockTime(clock, g.block),
       // Both sides of the seeded pool are worth about the same at graduation.
       liquidityUsd: quote ? unitsToNumber(g.pairTokenAmount, quote.decimals) * quote.usd * 2 : null,

@@ -3,6 +3,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { SatHolding, SatMarket } from "@/lib/sat/token";
 import { TIERS, type TierInfo, type TierThresholds } from "@/lib/sat/tiers";
+import { fmtPrice } from "@/lib/format";
+import { Flash } from "./Flash";
 import { useCreditReferral } from "./referral";
 import { useWallet } from "./wallet";
 
@@ -86,7 +88,9 @@ export function SatPill({ onOpen }: { onOpen: () => void }) {
   return (
     <button className="pill sat-pill" onClick={onOpen} title="SAT token and holder tiers">
       <span className="sat-pill-sym">SAT</span>
-      <span className="mono">{market ? `$${market.priceUsd.toPrecision(3)}` : "…"}</span>
+      <Flash value={market?.priceUsd} className="mono">
+        {market ? `$${fmtPrice(market.priceUsd)}` : "…"}
+      </Flash>
       {change !== null && <span className={`mono ${change >= 0 ? "up" : "down"}`}>{change >= 0 ? "+" : ""}{change.toFixed(1)}%</span>}
       {holding && <TierBadge tier={tier} />}
     </button>

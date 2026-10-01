@@ -6,6 +6,7 @@ import { cache } from "../cache";
 import { listLaunches, quoteOf, type PonsLaunch, type QuoteBook } from "../data/pons";
 import { FLOW_WINDOW_SECONDS, pickTrader, recentCurveTrades, type RawCurveTrade } from "../data/ponsFlow";
 import type { RobinhoodChainProvider } from "../data/robinhood";
+import { getPonsProfiles, type PonsProfile } from "../data/ponsProfile";
 import { getTokenMeta } from "../data/tokenMeta";
 import type { TokenMarket } from "../types";
 
@@ -293,8 +294,13 @@ export async function getWhaleRadar(provider: RobinhoodChainProvider, opts: Rada
 
   // Launch tokens have no symbol until we read it; only fetch what is on screen.
   const unnamed = [...big, ...inflows, ...outflows].filter((t) => !t.symbol).map((t) => t.token);
-  const meta = await getTokenMeta(unnamed).catch(() => new Map());
+  const ponsShown = [...big, ...inflows, ...outflows].filter((t) => t.venue === "pons").map((t) => t.token);
+  const [meta, profiles] = await Promise.all([
+    getTokenMeta(unnamed).catch(() => new Map()),
+    getPonsProfiles(ponsShown).catch(() => new Map<string, PonsProfile>()),
+  ]);
   const symbolOf = (token: string, fallback?: string) => fallback || meta.get(token.toLowerCase())?.symbol || `${token.slice(0, 6)}…`;
+  const logoOf = (token: string, fallback?: string) => fallback ?? profiles.get(token.toLowerCase())?.logoUrl ?? undefined;
 
   return {
     head: clock.head.toString(),
@@ -305,11 +311,12 @@ export async function getWhaleRadar(provider: RobinhoodChainProvider, opts: Rada
       ...t,
       id: `${t.tx}:${logIndex}`,
       symbol: symbolOf(t.token, t.symbol),
+      logoUrl: logoOf(t.token, t.logoUrl),
       block: blockNumber.toString(),
       time: blockTime(clock, blockNumber),
     })),
-    inflows: inflows.map((f) => ({ ...f, symbol: symbolOf(f.token, f.symbol) })),
-    outflows: outflows.map((f) => ({ ...f, symbol: symbolOf(f.token, f.symbol) })),
+    inflows: inflows.map((f) => ({ ...f, symbol: symbolOf(f.token, f.symbol), logoUrl: logoOf(f.token, f.logoUrl) })),
+    outflows: outflows.map((f) => ({ ...f, symbol: symbolOf(f.token, f.symbol), logoUrl: logoOf(f.token, f.logoUrl) })),
     totals: totalsOf(all),
   };
 }

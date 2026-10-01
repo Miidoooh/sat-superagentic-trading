@@ -1,6 +1,7 @@
 import { erc20Abi, getAddress, parseAbi } from "viem";
 import { FEE_TIERS, QUOTE_ASSETS, UNISWAP_V3, type QuoteAsset } from "../chain/constants";
 import { getPublicClient } from "../chain/client";
+import { multicallStrict } from "../chain/multicall";
 import { cache } from "../cache";
 import type { StockAsset } from "./assets";
 
@@ -54,7 +55,7 @@ const sortsFirst = (a: string, b: string) => a.toLowerCase() < b.toLowerCase();
  * Multicall3 so the whole universe costs a handful of RPC round trips.
  */
 export async function discoverPools(assets: StockAsset[]): Promise<Map<string, PoolRef[]>> {
-  const key = `pools:${assets.length}:${assets[0]?.address ?? ""}`;
+  const key = `pools:v2:${assets.length}:${assets[0]?.address ?? ""}`;
   return cache.get(key, POOL_TTL, async () => {
     const client = getPublicClient();
     const probes: { asset: StockAsset; quote: QuoteAsset; fee: number }[] = [];
@@ -69,15 +70,15 @@ export async function discoverPools(assets: StockAsset[]): Promise<Map<string, P
     const CHUNK = 400;
     for (let i = 0; i < probes.length; i += CHUNK) {
       const slice = probes.slice(i, i + CHUNK);
-      const results = await client.multicall({
-        contracts: slice.map((p) => ({
+      const results = await multicallStrict(
+        client,
+        slice.map((p) => ({
           address: getAddress(UNISWAP_V3.factory),
           abi: factoryAbi,
           functionName: "getPool" as const,
           args: [p.asset.address, getAddress(p.quote.address), p.fee] as const,
         })),
-        allowFailure: true,
-      });
+      );
       results.forEach((r, j) => {
         if (r.status !== "success") return;
         const pool = r.result as `0x${string}`;
@@ -119,7 +120,7 @@ export async function readPoolStates(refs: PoolRef[]): Promise<PoolState[]> {
         { address: r.token, abi: erc20Abi, functionName: "balanceOf" as const, args: [r.pool] as const },
         { address: getAddress(r.quote.address), abi: erc20Abi, functionName: "balanceOf" as const, args: [r.pool] as const },
       ]);
-      const results = await client.multicall({ contracts, allowFailure: true });
+      const results = await multicallStrict(client, contracts);
       slice.forEach((ref, j) => {
         const [slot0, liq, tokenBal, quoteBal] = results.slice(j * PER_POOL, j * PER_POOL + PER_POOL);
         if (

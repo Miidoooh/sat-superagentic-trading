@@ -2,8 +2,10 @@ import { getAddress, parseAbi, parseAbiItem } from "viem";
 import { PONS_V2_FACTORY, USDG } from "../chain/constants";
 import { getLogsClient, getPublicClient } from "../chain/client";
 import { blockClock, getLogsAdaptive, mapPool, RollingWindow } from "../chain/logs";
+import { multicallStrict } from "../chain/multicall";
 import { cache } from "../cache";
 import type { TokenMarket } from "../types";
+import { getPonsProfiles, type PonsProfile } from "./ponsProfile";
 import { getTokenMeta } from "./tokenMeta";
 
 /**
@@ -31,6 +33,8 @@ const CATALOG_TTL = 10 * 60 * 1000;
 const CATALOG_WAIT_MS = 6 * 1000;
 /** Just under the node's 10M-block limit on a single log query (~11 days). */
 const FIND_LAUNCH_BLOCKS = 9_900_000n;
+/** The Pons V2 factory's first launch is just above this block. */
+export const PONS_START_BLOCK = 27_000_000n;
 /** ~1 hour of launches, refreshed incrementally so new tokens appear within seconds. */
 const RECENT_BLOCKS = 36_000n;
 const RECENT_TTL = 10 * 1000;
@@ -42,7 +46,7 @@ const ZERO = "0x0000000000000000000000000000000000000000";
 /** Newest curves we price. */
 const MAX_CURVES = 4_000;
 const CURVES_PER_CALL = 250;
-const MAX_LISTED = 48;
+const MAX_LISTED = 100;
 const MIN_RAISED_USD = 500;
 
 const curveAbi = parseAbi([
@@ -188,17 +192,36 @@ export async function findLaunch(token: string): Promise<PonsLaunch | null> {
   if (listed) return listed;
   return cache.get(`pons:launch:${key}`, CATALOG_TTL, async () => {
     const { head } = await blockClock();
-    const logs = await getLogsClient().getLogs({
-      address: getAddress(PONS_V2_FACTORY),
-      event: TOKEN_LAUNCHED,
-      args: { token: getAddress(token) },
-      fromBlock: head > FIND_LAUNCH_BLOCKS ? head - FIND_LAUNCH_BLOCKS : 0n,
-      toBlock: head,
-    });
-    const log = logs[0];
-    const { curve, deployer, pairToken, graduationThreshold } = log?.args ?? {};
-    if (!log || !curve || !deployer || !pairToken || graduationThreshold === undefined) return null;
-    return { token: getAddress(token), curve, deployer, pairToken, threshold: graduationThreshold, block: log.blockNumber ?? 0n };
+    // Filtered by token, each window is one cheap query; walk back to the factory's first launch.
+    for (let to = head; to > PONS_START_BLOCK; to -= FIND_LAUNCH_BLOCKS) {
+      const from = to - FIND_LAUNCH_BLOCKS + 1n > PONS_START_BLOCK ? to - FIND_LAUNCH_BLOCKS + 1n : PONS_START_BLOCK;
+      const logs = await getLogsAdaptive(from, to, (a, b) =>
+        getLogsClient().getLogs({ address: getAddress(PONS_V2_FACTORY), event: TOKEN_LAUNCHED, args: { token: getAddress(token) }, fromBlock: a, toBlock: b }),
+      );
+      const log = logs[0];
+      const { curve, deployer, pairToken, graduationThreshold } = log?.args ?? {};
+      if (!log || !curve || !deployer || !pairToken || graduationThreshold === undefined) continue;
+      return { token: getAddress(token), curve, deployer, pairToken, threshold: graduationThreshold, block: log.blockNumber ?? 0n };
+    }
+    return null;
+  });
+}
+
+/** The graduation of one launch, if it has graduated: the block and transaction that seeded its pool. */
+export async function findGraduation(launch: PonsLaunch): Promise<PonsGraduation | null> {
+  return cache.get(`pons:graduation:${launch.token.toLowerCase()}`, CATALOG_TTL, async () => {
+    const { head } = await blockClock();
+    for (let from = launch.block; from <= head; from += FIND_LAUNCH_BLOCKS) {
+      const to = from + FIND_LAUNCH_BLOCKS - 1n < head ? from + FIND_LAUNCH_BLOCKS - 1n : head;
+      const logs = await getLogsAdaptive(from, to, (a, b) =>
+        getLogsClient().getLogs({ address: getAddress(PONS_V2_FACTORY), event: POOL_GRADUATED, args: { token: launch.token }, fromBlock: a, toBlock: b }),
+      );
+      const log = logs[0];
+      const { tokenAmount, pairTokenAmount } = log?.args ?? {};
+      if (!log || tokenAmount === undefined || pairTokenAmount === undefined || !log.transactionHash) continue;
+      return { token: launch.token, block: log.blockNumber ?? 0n, tx: log.transactionHash, tokenAmount, pairTokenAmount };
+    }
+    return null;
   });
 }
 
@@ -208,13 +231,13 @@ export async function readCurveStates(launches: PonsLaunch[], book: QuoteBook): 
   const out: CurveState[] = [];
   for (let i = 0; i < launches.length; i += CURVES_PER_CALL) {
     const slice = launches.slice(i, i + CURVES_PER_CALL);
-    const results = await client.multicall({
-      contracts: slice.flatMap((l) => [
+    const results = await multicallStrict(
+      client,
+      slice.flatMap((l) => [
         { address: l.curve, abi: curveAbi, functionName: "getReserves" as const },
         { address: l.curve, abi: curveAbi, functionName: "realQuoteReserve" as const },
       ]),
-      allowFailure: true,
-    });
+    );
     slice.forEach((launch, j) => {
       const reserves = results[j * 2];
       const real = results[j * 2 + 1];
@@ -248,10 +271,11 @@ export async function scanCurves(book: QuoteBook): Promise<CurveState[]> {
   );
 }
 
-export function curveMarket(state: CurveState, meta: { symbol: string; name: string; decimals: number }): TokenMarket {
+export function curveMarket(state: CurveState, meta: { symbol: string; name: string; decimals: number }, profile?: PonsProfile): TokenMarket {
   const decimals = meta.decimals;
   return {
-    token: { address: state.launch.token, symbol: meta.symbol, name: meta.name, decimals },
+    token: { address: state.launch.token, symbol: meta.symbol, name: meta.name, decimals, logoUrl: profile?.logoUrl ?? undefined },
+    profile: profile ? { description: profile.description, socials: profile.socials } : undefined,
     poolAddress: state.launch.curve,
     feeTier: 0,
     quoteSymbol: state.quote.symbol,
@@ -285,10 +309,12 @@ export async function listPonsMarkets(book: QuoteBook): Promise<TokenMarket[]> {
     .sort((a, b) => b.raisedUsd - a.raisedUsd)
     .slice(0, MAX_LISTED);
   if (top.length === 0) return [];
-  const meta = await getTokenMeta(top.map((s) => s.launch.token));
+  const tokens = top.map((s) => s.launch.token);
+  const [meta, profiles] = await Promise.all([getTokenMeta(tokens), getPonsProfiles(tokens).catch(() => new Map<string, PonsProfile>())]);
   return top.flatMap((s) => {
-    const m = meta.get(s.launch.token.toLowerCase());
-    return m ? [curveMarket(s, m)] : [];
+    const key = s.launch.token.toLowerCase();
+    const m = meta.get(key);
+    return m ? [curveMarket(s, m, profiles.get(key))] : [];
   });
 }
 

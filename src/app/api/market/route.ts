@@ -32,6 +32,7 @@ export async function GET() {
         feeRecipient: cfg.SAT_FEE_RECIPIENT ?? null,
       },
       agentEnabled: Boolean(cfg.OPENAI_API_KEY),
+      satToken: cfg.SAT_TOKEN_ADDRESS,
       tokens,
     });
   } catch (err) {

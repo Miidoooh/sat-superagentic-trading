@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { fmtAgo, fmtNum, fmtUsd } from "@/lib/format";
 import type { FlowRow, RadarSnapshot, RadarVenue, WhaleTrade } from "@/lib/radar/whales";
+import { TokenAvatar } from "./TokenAvatar";
 import { usePoll } from "./usePoll";
 
 const SIZES = [250, 1_000, 5_000, 25_000];
@@ -20,16 +21,31 @@ interface Props {
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
-function FlowList({ title, rows, tone, onOpen }: { title: string; rows: FlowRow[]; tone: "up" | "down"; onOpen: Props["onOpenToken"] }) {
+function SkeletonRows({ n }: { n: number }) {
+  return (
+    <>
+      {Array.from({ length: n }, (_, i) => (
+        <div key={i} className="skel-row" aria-hidden>
+          <span className="skeleton skel-dot" />
+          <span className="skeleton skel-line" />
+          <span className="skeleton skel-line short" />
+        </div>
+      ))}
+    </>
+  );
+}
+
+function FlowList({ title, rows, tone, onOpen, loading }: { title: string; rows: FlowRow[]; tone: "up" | "down"; onOpen: Props["onOpenToken"]; loading: boolean }) {
   const max = Math.max(1, ...rows.map((r) => Math.abs(r.netUsd)));
   return (
     <div className="flow-card">
       <div className="live-sub">{title}</div>
-      {rows.length === 0 && <div className="dim live-empty">Nothing yet</div>}
+      {rows.length === 0 && (loading ? <SkeletonRows n={5} /> : <div className="dim live-empty">No net {tone === "up" ? "buying" : "selling"} this size yet.</div>)}
       {rows.map((r) => (
         <button key={r.token} className="flow-row" onClick={() => onOpen(r.token, r.venue)}>
           <span className={`flow-bar ${tone}`} style={{ width: `${(Math.abs(r.netUsd) / max) * 100}%` }} />
           <span className="flow-sym">
+            <TokenAvatar src={r.logoUrl} symbol={r.symbol} seed={r.token} size={20} />
             {r.symbol}
             <span className={`venue-tag ${r.venue}`}>{r.venue === "pons" ? "pons" : "stock"}</span>
           </span>
@@ -130,17 +146,14 @@ export default function WhaleRadar({ explorer, onOpenToken, onWallet }: Props) {
           <div className="live-sub">
             Big trades <span className="dim">≥ {fmtUsd(minUsd, { compact: true })}</span>
           </div>
-          {loading && !data && <div className="dim live-empty is-loading">Reading the last 30 minutes of trades…</div>}
+          {loading && !data && <SkeletonRows n={10} />}
           {data && data.trades.length === 0 && <div className="dim live-empty">No trades this size in the window.</div>}
           <div className="trade-rows">
             {data?.trades.map((t: WhaleTrade) => (
               <div key={t.id} className={`trade-row ${t.side} ${fresh.has(t.id) ? "flash" : ""}`}>
                 <span className={`side-badge ${t.side}`}>{t.side === "buy" ? "BUY" : "SELL"}</span>
                 <button className="trade-sym" onClick={() => onOpenToken(t.token, t.venue)}>
-                  {t.logoUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img className="logo" src={t.logoUrl} alt="" />
-                  )}
+                  <TokenAvatar src={t.logoUrl} symbol={t.symbol} seed={t.token} size={20} />
                   {t.symbol}
                   <span className={`venue-tag ${t.venue}`}>{t.venue === "pons" ? "pons" : t.quoteSymbol}</span>
                 </button>
@@ -162,8 +175,8 @@ export default function WhaleRadar({ explorer, onOpenToken, onWallet }: Props) {
           </div>
         </div>
         <div className="radar-flows">
-          <FlowList title="Net inflow" rows={data?.inflows ?? []} tone="up" onOpen={onOpenToken} />
-          <FlowList title="Net outflow" rows={data?.outflows ?? []} tone="down" onOpen={onOpenToken} />
+          <FlowList title="Net inflow" rows={data?.inflows ?? []} tone="up" onOpen={onOpenToken} loading={loading && !data} />
+          <FlowList title="Net outflow" rows={data?.outflows ?? []} tone="down" onOpen={onOpenToken} loading={loading && !data} />
         </div>
       </div>
     </div>

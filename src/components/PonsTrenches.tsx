@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { fmtAgo, fmtPrice, fmtUsd } from "@/lib/format";
 import type { GraduatedCard, TrenchCard, TrenchesSnapshot } from "@/lib/radar/trenches";
+import { SocialLinks, TokenAvatar } from "./TokenAvatar";
 import { usePoll } from "./usePoll";
 
 interface Props {
@@ -23,10 +24,26 @@ function Progress({ pct }: { pct: number }) {
 function Card({ c, now, onOpen }: { c: TrenchCard; now: number; onOpen: Props["onOpenToken"] }) {
   const net = c.flow.buyUsd - c.flow.sellUsd;
   return (
-    <button className="trench-card" onClick={() => onOpen(c.token, c.url)} title={c.name || c.symbol}>
+    <div
+      className="trench-card"
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(c.token, c.url)}
+      onKeyDown={(e) => e.key === "Enter" && onOpen(c.token, c.url)}
+      title={c.name || c.symbol}
+    >
       <div className="trench-top">
-        <span className="trench-sym">{c.symbol}</span>
-        <span className="dim mono">{fmtAgo(c.launchedAt, now)}</span>
+        <span className="trench-id">
+          <TokenAvatar src={c.logoUrl} symbol={c.symbol} seed={c.token} size={26} />
+          <span className="trench-names">
+            <span className="trench-sym">{c.symbol}</span>
+            {c.name && c.name !== c.symbol && <span className="trench-name dim">{c.name}</span>}
+          </span>
+        </span>
+        <span className="trench-meta">
+          <SocialLinks socials={c.socials} size={12} />
+          <span className="dim mono">{fmtAgo(c.launchedAt, now)}</span>
+        </span>
       </div>
       <div className="trench-mid">
         <span className="mono">${fmtPrice(c.priceUsd)}</span>
@@ -49,7 +66,7 @@ function Card({ c, now, onOpen }: { c: TrenchCard; now: number; onOpen: Props["o
           </span>
         </div>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -69,27 +86,35 @@ function Column({ title, hint, cards, now, onOpen }: { title: string; hint: stri
   );
 }
 
-function GraduatedColumn({ cards, now, explorer }: { cards: GraduatedCard[]; now: number; explorer: string }) {
+function GraduatedColumn({ cards, now, explorer, onOpen }: { cards: GraduatedCard[]; now: number; explorer: string; onOpen: Props["onOpenToken"] }) {
   return (
     <div className="trench-col">
       <div className="live-sub">
-        Graduated <span className="dim">now on Uniswap</span>
+        Graduated <span className="dim">now on Uniswap v4</span>
       </div>
       <div className="trench-list">
         {cards.length === 0 && <div className="dim live-empty">No graduations in the last day</div>}
         {cards.map((g) => (
-          <div key={g.tx} className="trench-card graduated">
+          <div
+            key={g.tx}
+            className="trench-card graduated"
+            role="button"
+            tabIndex={0}
+            onClick={() => onOpen(g.token, g.url)}
+            onKeyDown={(e) => e.key === "Enter" && onOpen(g.token, g.url)}
+          >
             <div className="trench-top">
-              <a className="trench-sym" href={g.url} target="_blank" rel="noreferrer noopener">
-                {g.symbol} ↗
-              </a>
+              <span className="trench-id">
+                <TokenAvatar src={g.logoUrl} symbol={g.symbol} seed={g.token} size={26} />
+                <span className="trench-sym">{g.symbol}</span>
+              </span>
               <span className="dim mono">{fmtAgo(g.graduatedAt, now)}</span>
             </div>
             <div className="trench-mid">
               <span className="dim">pool seeded</span>
               <span className="mono">{fmtUsd(g.liquidityUsd, { compact: true })}</span>
             </div>
-            <a className="dim mono" href={`${explorer}/tx/${g.tx}`} target="_blank" rel="noreferrer noopener">
+            <a className="dim mono" href={`${explorer}/tx/${g.tx}`} target="_blank" rel="noreferrer noopener" onClick={(e) => e.stopPropagation()}>
               graduation tx ↗
             </a>
           </div>
@@ -163,7 +188,7 @@ export default function PonsTrenches({ explorer, onOpenToken }: Props) {
             <Column title="New launches" hint="just deployed" cards={data.newest} now={now} onOpen={onOpenToken} />
             <Column title="About to graduate" hint="closest to target" cards={data.graduating} now={now} onOpen={onOpenToken} />
             <Column title="Hot" hint={`most traded · ${data.windowMinutes}m`} cards={data.hot} now={now} onOpen={onOpenToken} />
-            <GraduatedColumn cards={data.graduated} now={now} explorer={explorer} />
+            <GraduatedColumn cards={data.graduated} now={now} explorer={explorer} onOpen={onOpenToken} />
           </div>
         )
       )}

@@ -53,6 +53,9 @@ export const PONS_ROUTER = "0xe33e9e479df8802cb0866d5d05258bec4cf62948" as const
 /** Contracts that show up as the counterparty of a routed trade rather than the trader. */
 export const KNOWN_ROUTERS = new Set([PONS_ROUTER, "0xCaf681a66D020601342297493863E78C959E5cb2"].map((a) => a.toLowerCase()));
 
+/** Uniswap v4 keeps every pool inside this one contract. Pons graduations seed v4 pools here. */
+export const V4_POOL_MANAGER = "0x8366a39CC670B4001A1121B8F6A443A643e40951" as const;
+
 export const ponsTokenUrl = (token: string) => `https://www.ponsfamily.com/launchpad/${token}`;
 
 /** Global Dollar, the USD stablecoin most Stock Token pools quote against. 6 decimals. */

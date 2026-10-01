@@ -60,6 +60,10 @@ export interface TokenMarket {
   venue: "uniswap-v3" | "pons";
   /** Bonding-curve state, Pons launches only. Raised excludes the curve's virtual reserve. */
   curve?: { progressPct: number; raisedUsd: number; thresholdUsd: number };
+  /** Pons launches publish a description and social links on chain. */
+  profile?: { description: string; socials: { twitter?: string; telegram?: string; discord?: string; farcaster?: string; website?: string } };
+  /** Set once a Pons launch has graduated to its Uniswap v4 pool. */
+  graduated?: { poolId: `0x${string}`; at: number | null };
 }
 
 export type Direction = "bullish" | "bearish" | "neutral";

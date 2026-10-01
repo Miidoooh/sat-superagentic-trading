@@ -18,6 +18,7 @@ import {
   unitsOf,
 } from "./pons";
 import { encodeRoutedBuy, encodeRoutedSell, netOfFee, quoteRoute, type RouteFee } from "./route";
+import { encodeSatSwap, fmtEth, fmtSat, PONS_SWAP_ROUTER, quoteSatSwap, ROUTER_FEE_BPS, satAllowance, satApproveData, satBalance } from "./sat";
 import { EXECUTION_DISABLED, validateIntent, type BuiltTrade, type TradeIntent, type TxStep } from "./trade";
 
 /** Above this, the preview carries a visible price-impact warning. */
@@ -50,8 +51,13 @@ export async function prepareTrade(intent: TradeIntent, opts: PrepareOptions, cf
 
   try {
     const nativeUsd = await provider.nativeUsd();
-    const trade =
-      market.venue === "pons"
+    const isSat = market.token.address.toLowerCase() === cfg.SAT_TOKEN_ADDRESS.toLowerCase();
+    if (market.graduated && !isSat) {
+      return { trade: null, market, errors: ["This launch graduated to Uniswap v4. SAT can trade it soon; for now use Pons."] };
+    }
+    const trade = isSat
+      ? await prepareSat(intent, market, nativeUsd, opts, cfg)
+      : market.venue === "pons"
         ? await preparePons(intent, market, nativeUsd, opts, cfg, provider)
         : await prepareStock(intent, market, nativeUsd, opts, cfg);
     return trade;
@@ -145,6 +151,75 @@ async function prepareStock(
       exact: true,
       feeBps: fee?.bips ?? 0,
       feeUsd: fee ? (outUsd * fee.bips) / 10_000 : 0,
+    },
+  };
+}
+
+/** SAT itself, through the Pons swap router into its Uniswap v4 pool. */
+async function prepareSat(intent: TradeIntent, market: TokenMarket, nativeUsd: number, opts: PrepareOptions, cfg: SatConfig): Promise<Prepared> {
+  const errors: string[] = [];
+  const slippage = intent.slippageBps ?? cfg.SAT_MAX_SLIPPAGE_BPS;
+  if (slippage > cfg.SAT_MAX_SLIPPAGE_BPS) errors.push(`Slippage ${slippage}bps exceeds the ${cfg.SAT_MAX_SLIPPAGE_BPS}bps guardrail.`);
+  const notionalUsd = intent.side === "buy" ? intent.amount * nativeUsd : intent.amount * market.priceUsd;
+  if (notionalUsd > cfg.SAT_MAX_TRADE_NATIVE * nativeUsd) {
+    errors.push(`Trade size $${notionalUsd.toFixed(2)} exceeds the ${cfg.SAT_MAX_TRADE_NATIVE} ${cfg.RH_NATIVE_SYMBOL} per-trade guardrail.`);
+  }
+  if (errors.length) return { trade: null, market, errors };
+
+  const amountIn = intent.side === "buy" ? parseEther(intent.amount.toFixed(18)) : unitsOf(intent.amount, 18);
+  const steps: TxStep[] = [];
+  if (opts.wallet) {
+    const balance = intent.side === "buy" ? await balanceOf(null, opts.wallet) : await satBalance(opts.wallet);
+    if (balance < amountIn) {
+      const have = intent.side === "buy" ? fmtUnits(balance, 18, cfg.RH_NATIVE_SYMBOL) : fmtSat(balance);
+      return { trade: null, market, errors: [`Not enough balance: this wallet holds ${have}.`] };
+    }
+    if (intent.side === "sell" && (await satAllowance(opts.wallet)) < amountIn) {
+      steps.push({ label: `Approve exactly ${intent.amount} SAT for the Pons swap router`, to: market.token.address, value: "0", data: satApproveData(amountIn) });
+    }
+  }
+
+  const q = await quoteSatSwap(intent.side, amountIn, opts.wallet);
+  const minOut = minOutOf(q.amountOut, slippage);
+  const out = Number(q.amountOut) / 1e18;
+  const outUsd = intent.side === "buy" ? out * market.priceUsd : out * nativeUsd;
+  // Everything between spot and what arrives: pool impact, the router's 1% and the hook's tax.
+  const impact = notionalUsd > 0 ? Math.max(0, (1 - outUsd / notionalUsd) * 100) : null;
+  if (impact !== null && impact > cfg.SAT_MAX_PRICE_IMPACT_PCT) {
+    return { trade: null, market, errors: [`Price impact ${impact.toFixed(1)}% is above the ${cfg.SAT_MAX_PRICE_IMPACT_PCT}% guardrail (router fee and pool tax included).`] };
+  }
+
+  steps.push({
+    label: intent.side === "buy" ? `Buy SAT with ${intent.amount} ${cfg.RH_NATIVE_SYMBOL}` : `Sell ${intent.amount} SAT for ${cfg.RH_NATIVE_SYMBOL}`,
+    to: PONS_SWAP_ROUTER,
+    value: intent.side === "buy" ? amountIn.toString() : "0",
+    data: encodeSatSwap(intent.side, amountIn, minOut),
+  });
+
+  const warnings = [`Routed through the Pons swap router: ${intent.side === "buy" ? "ETH → USDG → SAT" : "SAT → USDG → ETH"}. Includes its 1% fee and the SAT pool's tax.`];
+  // A normal SAT trade costs ~4% (router 1% + hook tax), so warn only beyond that.
+  if (impact !== null && impact > IMPACT_WARN_PCT + ROUTER_FEE_BPS / 100 + 2) warnings.push(`High cost: about ${impact.toFixed(1)}% between spot and what you receive.`);
+
+  return {
+    market,
+    errors: [],
+    trade: {
+      venue: "uniswap-v4",
+      side: intent.side,
+      symbol: "SAT",
+      tokenAddress: getAddress(market.token.address),
+      chainId: cfg.RH_CHAIN_ID,
+      amountIn: intent.side === "buy" ? `${intent.amount} ${cfg.RH_NATIVE_SYMBOL}` : `${intent.amount} SAT`,
+      estimatedOut: intent.side === "buy" ? fmtSat(q.amountOut) : fmtEth(q.amountOut, cfg.RH_NATIVE_SYMBOL),
+      minOut: intent.side === "buy" ? fmtSat(minOut) : fmtEth(minOut, cfg.RH_NATIVE_SYMBOL),
+      slippageBps: slippage,
+      notionalUsd,
+      steps,
+      warnings,
+      priceImpactPct: impact,
+      exact: true,
+      feeBps: 0,
+      feeUsd: 0,
     },
   };
 }

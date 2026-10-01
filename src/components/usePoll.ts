@@ -1,20 +1,25 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
-/** Fetch JSON on an interval. Pauses while the tab is hidden and keeps the last good payload on error. */
+/**
+ * Fetch JSON on an interval. The first load always runs so a view is ready the
+ * moment it is seen; refreshes pause while the tab is hidden. Keeps the last
+ * good payload on error.
+ */
 export function usePoll<T>(url: string, intervalMs: number): { data: T | null; error: string; loading: boolean } {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const inFlight = useRef(false);
 
   useEffect(() => {
     let alive = true;
+    // Per URL, so changing a filter never waits behind a request for the old one.
+    let inFlight = false;
     setLoading(true);
-    const load = async () => {
-      if (inFlight.current || document.hidden) return;
-      inFlight.current = true;
+    const load = async (force = false) => {
+      if (inFlight || (!force && document.hidden)) return;
+      inFlight = true;
       try {
         const r = await fetch(url);
         const d = await r.json();
@@ -26,12 +31,12 @@ export function usePoll<T>(url: string, intervalMs: number): { data: T | null; e
       } catch (e) {
         if (alive) setError((e as Error).message);
       } finally {
-        inFlight.current = false;
+        inFlight = false;
         if (alive) setLoading(false);
       }
     };
-    void load();
-    const timer = setInterval(load, intervalMs);
+    void load(true);
+    const timer = setInterval(() => void load(), intervalMs);
     const onVisible = () => {
       if (!document.hidden) void load();
     };

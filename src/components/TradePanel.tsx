@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { erc20Abi, formatUnits } from "viem";
+import { ponsTokenUrl } from "@/lib/chain/constants";
 import { fmtUsd } from "@/lib/format";
 import type { TokenMarket } from "@/lib/types";
 import { executeTrade } from "./tradeExec";
+import { useSat } from "./sat";
 import { TRADED_EVENT, useWallet } from "./wallet";
 
 interface Quote {
-  venue?: "uniswap-v3" | "pons";
+  venue?: "uniswap-v3" | "uniswap-v4" | "pons";
   amountIn: string;
   estimatedOut: string;
   minOut: string;
@@ -51,7 +53,10 @@ export default function TradePanel({ market, executionEnabled, maxTradeNative, m
   const [log, setLog] = useState<{ text: string; href?: string; tone?: "ok" | "bad" }[]>([]);
   const [balances, setBalances] = useState<{ native: number | null; token: number | null }>({ native: null, token: null });
 
-  const payAsset = market?.venue === "pons" ? market.quoteSymbol : nativeSymbol;
+  const { market: sat } = useSat();
+  const isSat = !!market && !!sat && market.token.address.toLowerCase() === sat.address.toLowerCase();
+  // Live curves are paid in their pair asset; SAT's v4 route and stocks take native ETH.
+  const payAsset = market?.venue === "pons" && !market.graduated ? market.quoteSymbol : nativeSymbol;
   const payIsNative = payAsset === nativeSymbol;
   const token = market?.token;
   const slippages = SLIPPAGES.filter((s) => s <= maxSlippageBps);
@@ -156,6 +161,25 @@ export default function TradePanel({ market, executionEnabled, maxTradeNative, m
 
   if (!market || !token) return null;
 
+  if (market.graduated && !isSat) {
+    return (
+      <div className="trade-panel trade-graduated">
+        <div className="trade-tabs">
+          <strong>{token.symbol}</strong>
+          <div className="spacer" />
+          <span className="dim trade-venue">Uniswap v4</span>
+        </div>
+        <p className="muted">
+          {token.symbol} graduated from its Pons curve and now trades in a Uniswap v4 pool. Trading v4 pools directly from SAT is coming next; until
+          then, trade it on Pons.
+        </p>
+        <a className="btn primary trade-cta" href={ponsTokenUrl(token.address)} target="_blank" rel="noreferrer noopener">
+          Trade {token.symbol} on Pons ↗
+        </a>
+      </div>
+    );
+  }
+
   const q = quote?.quote ?? null;
   const blocked = quote && !quote.ok ? quote.errors : [];
   const canSubmit = executionEnabled && validAmount && !quoting && !busy && quote?.ok === true;
@@ -177,7 +201,7 @@ export default function TradePanel({ market, executionEnabled, maxTradeNative, m
           Sell
         </button>
         <div className="spacer" />
-        <span className="dim trade-venue">{market.venue === "pons" ? "Pons curve" : "Uniswap v3"}</span>
+        <span className="dim trade-venue">{market.graduated ? "Uniswap v4 · via Pons router" : market.venue === "pons" ? "Pons curve" : "Uniswap v3"}</span>
       </div>
 
       <label className="trade-input">
@@ -228,8 +252,9 @@ export default function TradePanel({ market, executionEnabled, maxTradeNative, m
               </div>
               {q.priceImpactPct !== null && (
                 <div className="kv">
-                  <span className="k">Price impact</span>
-                  <span className={`mono ${q.priceImpactPct > 3 ? "down" : ""}`}>{q.priceImpactPct.toFixed(2)}%</span>
+                  {/* SAT's figure already includes the router fee and pool tax (~4% normally). */}
+                  <span className="k">{q.venue === "uniswap-v4" ? "Cost incl. fees" : "Price impact"}</span>
+                  <span className={`mono ${q.priceImpactPct > (q.venue === "uniswap-v4" ? 6 : 3) ? "down" : ""}`}>{q.priceImpactPct.toFixed(2)}%</span>
                 </div>
               )}
               {q.feeBps > 0 && (

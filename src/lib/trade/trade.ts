@@ -37,7 +37,7 @@ export interface TxStep {
 }
 
 export interface BuiltTrade {
-  venue?: "uniswap-v3" | "pons";
+  venue?: "uniswap-v3" | "uniswap-v4" | "pons";
   side: TradeIntent["side"];
   symbol: string;
   tokenAddress: `0x${string}`;

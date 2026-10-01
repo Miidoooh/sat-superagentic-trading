@@ -1,17 +1,13 @@
 "use client";
 
+import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import {
-  createPublicClient,
-  createWalletClient,
-  custom,
-  defineChain,
-  http,
-  type EIP1193Provider,
-  type PublicClient,
-} from "viem";
+import { createPublicClient, defineChain, http, type PublicClient } from "viem";
+import { useAccount, useConfig, useDisconnect } from "wagmi";
+import { getAccount, sendTransaction, signMessage as wagmiSignMessage, switchChain } from "wagmi/actions";
 import { ROBINHOOD_MAINNET } from "@/lib/chain/constants";
 import type { TxStep } from "@/lib/trade/trade";
+import { Web3Providers } from "./web3";
 
 export interface ChainInfo {
   id: number;
@@ -21,21 +17,14 @@ export interface ChainInfo {
   symbol: string;
 }
 
-export interface WalletOption {
-  id: string;
-  name: string;
-  icon?: string;
-  provider: EIP1193Provider;
-}
-
 interface WalletState {
   address: `0x${string}` | null;
   chainId: number | null;
   chain: ChainInfo;
-  options: WalletOption[];
   connecting: boolean;
   error: string;
-  connect: (optionId?: string) => Promise<`0x${string}` | null>;
+  /** Opens the RainbowKit wallet picker; resolves with the account, or null if the user closes it. */
+  connect: () => Promise<`0x${string}` | null>;
   disconnect: () => void;
   /** Send each step in order, waiting for it to confirm. Returns the tx hashes. */
   sendSteps: (
@@ -48,7 +37,6 @@ interface WalletState {
   reader: PublicClient;
 }
 
-const KEY = "sat:wallet";
 const TRADED_KEY = "sat:traded-tokens";
 export const TRADED_EVENT = "sat:traded";
 
@@ -61,21 +49,6 @@ const DEFAULT_CHAIN: ChainInfo = {
 };
 
 const Ctx = createContext<WalletState | null>(null);
-
-function toViemChain(chain: ChainInfo) {
-  return defineChain({
-    id: chain.id,
-    name: chain.name,
-    nativeCurrency: { name: chain.symbol, symbol: chain.symbol, decimals: 18 },
-    rpcUrls: { default: { http: [chain.rpcUrl] } },
-    blockExplorers: { default: { name: "Explorer", url: chain.explorer } },
-  });
-}
-
-interface Announce {
-  info: { uuid: string; name: string; icon?: string; rdns?: string };
-  provider: EIP1193Provider;
-}
 
 /** Tokens bought or sold through SAT, so the portfolio can include them. */
 export function tradedTokens(): string[] {
@@ -92,137 +65,84 @@ export function rememberTraded(token: string): void {
   window.dispatchEvent(new Event(TRADED_EVENT));
 }
 
-export function WalletProvider({ chain: chainProp, children }: { chain?: ChainInfo | null; children: React.ReactNode }) {
-  const chain = chainProp ?? DEFAULT_CHAIN;
-  const [options, setOptions] = useState<WalletOption[]>([]);
-  const [address, setAddress] = useState<`0x${string}` | null>(null);
-  const [chainId, setChainId] = useState<number | null>(null);
-  const [connecting, setConnecting] = useState(false);
+export function WalletProvider({ chain, children }: { chain?: ChainInfo | null; children: React.ReactNode }) {
+  return (
+    <Web3Providers>
+      <WalletBridge chain={chain ?? DEFAULT_CHAIN}>{children}</WalletBridge>
+    </Web3Providers>
+  );
+}
+
+/** Adapts wagmi + RainbowKit to the wallet API the rest of SAT uses. */
+function WalletBridge({ chain, children }: { chain: ChainInfo; children: React.ReactNode }) {
+  const config = useConfig();
+  const account = useAccount();
+  const { openConnectModal, connectModalOpen } = useConnectModal();
+  const { disconnect: wagmiDisconnect } = useDisconnect();
   const [error, setError] = useState("");
-  const active = useRef<WalletOption | null>(null);
+  const pending = useRef<((a: `0x${string}` | null) => void) | null>(null);
+  const wasOpen = useRef(false);
+  const address = account.address ?? null;
 
   const reader = useMemo(
-    () => createPublicClient({ chain: toViemChain(chain), transport: http(chain.rpcUrl, { batch: true }) }) as PublicClient,
+    () =>
+      createPublicClient({
+        chain: defineChain({
+          id: chain.id,
+          name: chain.name,
+          nativeCurrency: { name: chain.symbol, symbol: chain.symbol, decimals: 18 },
+          rpcUrls: { default: { http: [chain.rpcUrl] } },
+        }),
+        transport: http(chain.rpcUrl, { batch: true }),
+      }) as PublicClient,
     [chain],
   );
 
-  // EIP-6963 lets several installed wallets announce themselves.
+  // Settle a pending connect() once an account appears, or when the picker closes without one.
   useEffect(() => {
-    const found = new Map<string, WalletOption>();
-    const onAnnounce = (e: Event) => {
-      const { info, provider } = (e as CustomEvent<Announce>).detail;
-      found.set(info.rdns ?? info.uuid, { id: info.rdns ?? info.uuid, name: info.name, icon: info.icon, provider });
-      setOptions([...found.values()]);
-    };
-    window.addEventListener("eip6963:announceProvider", onAnnounce);
-    window.dispatchEvent(new Event("eip6963:requestProvider"));
-    const legacy = setTimeout(() => {
-      const injected = (window as unknown as { ethereum?: EIP1193Provider }).ethereum;
-      if (found.size === 0 && injected) {
-        found.set("injected", { id: "injected", name: "Browser wallet", provider: injected });
-        setOptions([...found.values()]);
-      }
-    }, 400);
-    return () => {
-      window.removeEventListener("eip6963:announceProvider", onAnnounce);
-      clearTimeout(legacy);
-    };
-  }, []);
-
-  const attach = useCallback((option: WalletOption) => {
-    const prev = active.current?.provider as (EIP1193Provider & { removeListener?: EIP1193Provider["removeListener"] }) | undefined;
-    if (prev && prev !== option.provider) {
-      prev.removeListener?.("accountsChanged", onAccounts);
-      prev.removeListener?.("chainChanged", onChain);
+    if (address && pending.current) {
+      pending.current(address);
+      pending.current = null;
     }
-    active.current = option;
-    option.provider.on?.("accountsChanged", onAccounts);
-    option.provider.on?.("chainChanged", onChain);
-    function onAccounts(accounts: string[]) {
-      const next = (accounts[0] as `0x${string}` | undefined) ?? null;
-      setAddress(next);
-      if (!next) localStorage.removeItem(KEY);
-    }
-    function onChain(id: string) {
-      setChainId(Number.parseInt(id, 16));
-    }
-  }, []);
-
-  // Reconnect silently to the wallet used last time.
+  }, [address]);
   useEffect(() => {
-    const saved = localStorage.getItem(KEY);
-    if (!saved || address) return;
-    const option = options.find((o) => o.id === saved);
-    if (!option) return;
-    void (async () => {
-      const accounts = (await option.provider.request({ method: "eth_accounts" }).catch(() => [])) as string[];
-      if (!accounts[0]) return;
-      attach(option);
-      setAddress(accounts[0] as `0x${string}`);
-      const id = (await option.provider.request({ method: "eth_chainId" }).catch(() => null)) as string | null;
-      if (id) setChainId(Number.parseInt(id, 16));
-    })();
-  }, [options, address, attach]);
+    if (wasOpen.current && !connectModalOpen && !address && pending.current) {
+      pending.current(null);
+      pending.current = null;
+    }
+    wasOpen.current = connectModalOpen;
+  }, [connectModalOpen, address]);
 
-  const connect = useCallback(
-    async (optionId?: string) => {
-      const option = options.find((o) => o.id === optionId) ?? options[0];
-      if (!option) {
-        setError("No browser wallet found. Install MetaMask, Rabby or another EVM wallet.");
-        return null;
-      }
-      setConnecting(true);
-      setError("");
-      try {
-        const accounts = (await option.provider.request({ method: "eth_requestAccounts" })) as string[];
-        const next = (accounts[0] as `0x${string}` | undefined) ?? null;
-        if (!next) throw new Error("The wallet did not share an account.");
-        attach(option);
-        setAddress(next);
-        localStorage.setItem(KEY, option.id);
-        const id = (await option.provider.request({ method: "eth_chainId" })) as string;
-        setChainId(Number.parseInt(id, 16));
-        return next;
-      } catch (e) {
-        setError((e as Error).message);
-        return null;
-      } finally {
-        setConnecting(false);
-      }
-    },
-    [options, attach],
-  );
+  const connect = useCallback(async () => {
+    if (address) return address;
+    if (!openConnectModal) {
+      setError("The wallet picker is still loading. Try again in a moment.");
+      return null;
+    }
+    setError("");
+    pending.current?.(null);
+    return new Promise<`0x${string}` | null>((resolve) => {
+      pending.current = resolve;
+      openConnectModal();
+    });
+  }, [address, openConnectModal]);
 
-  const disconnect = useCallback(() => {
-    localStorage.removeItem(KEY);
-    setAddress(null);
-    setChainId(null);
-    active.current = null;
-  }, []);
+  const disconnect = useCallback(() => wagmiDisconnect(), [wagmiDisconnect]);
 
   const sendSteps = useCallback<WalletState["sendSteps"]>(
     async (steps, onStep, accountOverride) => {
-      const option = active.current;
-      const account = accountOverride ?? address;
-      if (!option || !account) throw new Error("Connect a wallet first.");
-      const viemChain = toViemChain(chain);
-      const wallet = createWalletClient({ account, chain: viemChain, transport: custom(option.provider) });
-      const current = Number.parseInt((await option.provider.request({ method: "eth_chainId" })) as string, 16);
-      if (current !== chain.id) {
-        try {
-          await wallet.switchChain({ id: chain.id });
-        } catch {
-          await wallet.addChain({ chain: viemChain });
-          await wallet.switchChain({ id: chain.id });
-        }
-        setChainId(chain.id);
+      const from = accountOverride ?? address;
+      if (!from) throw new Error("Connect a wallet first.");
+      if (getAccount(config).chainId !== chain.id) {
+        onStep?.(`Switch your wallet to ${chain.name}`);
+        await switchChain(config, { chainId: chain.id });
       }
       const hashes: `0x${string}`[] = [];
       for (const step of steps) {
         onStep?.(`Confirm in wallet: ${step.label}`);
-        const hash = await wallet.sendTransaction({
-          account,
-          chain: viemChain,
+        const hash = await sendTransaction(config, {
+          account: from,
+          chainId: chain.id,
           to: step.to,
           data: step.data,
           value: BigInt(step.value),
@@ -234,22 +154,31 @@ export function WalletProvider({ chain: chainProp, children }: { chain?: ChainIn
       }
       return hashes;
     },
-    [address, chain, reader],
+    [address, chain, config, reader],
   );
 
   const signMessage = useCallback(
     async (message: string) => {
-      const option = active.current;
-      if (!option || !address) throw new Error("Connect a wallet first.");
-      const wallet = createWalletClient({ account: address, transport: custom(option.provider) });
-      return wallet.signMessage({ account: address, message });
+      if (!address) throw new Error("Connect a wallet first.");
+      return wagmiSignMessage(config, { account: address, message });
     },
-    [address],
+    [address, config],
   );
 
   const value = useMemo<WalletState>(
-    () => ({ address, chainId, chain, options, connecting, error, connect, disconnect, sendSteps, signMessage, reader }),
-    [address, chainId, chain, options, connecting, error, connect, disconnect, sendSteps, signMessage, reader],
+    () => ({
+      address,
+      chainId: account.chainId ?? null,
+      chain,
+      connecting: account.isConnecting || account.isReconnecting,
+      error,
+      connect,
+      disconnect,
+      sendSteps,
+      signMessage,
+      reader,
+    }),
+    [address, account.chainId, account.isConnecting, account.isReconnecting, chain, error, connect, disconnect, sendSteps, signMessage, reader],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

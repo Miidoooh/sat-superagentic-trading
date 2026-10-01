@@ -6,15 +6,20 @@ import AgentChat from "@/components/AgentChat";
 import AlertsCenter from "@/components/AlertsCenter";
 import ChartPanel from "@/components/ChartPanel";
 import ConnectButton from "@/components/ConnectButton";
+import ExploreView from "@/components/ExploreView";
+import { Flash } from "@/components/Flash";
 import Logo from "@/components/Logo";
 import PonsTokenPanel from "@/components/PonsTokenPanel";
 import PonsTrenches from "@/components/PonsTrenches";
 import PortfolioView from "@/components/PortfolioView";
-import { SatPill, SatProvider } from "@/components/sat";
+import CommandPalette from "@/components/CommandPalette";
+import { IconBolt, IconBrain, IconDiamond, IconExplore, IconFlame, IconPie, IconRadar, IconReport, IconSearch, IconTerminal, IconWallet } from "@/components/icons";
+import { SatPill, SatProvider, useSat } from "@/components/sat";
 import SatView from "@/components/SatView";
+import { SocialLinks, TokenAvatar } from "@/components/TokenAvatar";
 import TokenList from "@/components/TokenList";
 import TradePanel from "@/components/TradePanel";
-import { WalletProvider, type ChainInfo } from "@/components/wallet";
+import { useWallet, WalletProvider, type ChainInfo } from "@/components/wallet";
 import WalletTracker from "@/components/WalletTracker";
 import WhaleRadar from "@/components/WhaleRadar";
 import { ponsTokenUrl, ROBINHOOD_MAINNET } from "@/lib/chain/constants";
@@ -23,6 +28,7 @@ import type { Candle, ChartAnalysis, ProviderCapabilities, Timeframe, TokenMarke
 import "../live.css";
 import "../smart.css";
 import "../v2.css";
+import "../v3.css";
 
 interface MarketResponse {
   source: string;
@@ -31,6 +37,7 @@ interface MarketResponse {
   chain: ChainInfo;
   execution: { enabled: boolean; maxTradeNative: number; maxSlippageBps: number; feeBps: number; feeRecipient: string | null };
   agentEnabled: boolean;
+  satToken: string;
   tokens: TokenMarket[];
 }
 
@@ -44,16 +51,44 @@ const ALL_TF: Timeframe[] = ["5m", "15m", "1h", "4h", "1d"];
 const PONS_TF: Timeframe[] = ["5m", "15m", "1h", "4h"];
 const isAddress = (s: string) => /^0x[0-9a-fA-F]{40}$/.test(s);
 
-type View = "terminal" | "radar" | "trenches" | "wallets" | "portfolio" | "sat";
-const VIEWS: { id: View; label: string; isNew?: boolean }[] = [
-  { id: "terminal", label: "Terminal" },
-  { id: "radar", label: "Whale Radar" },
-  { id: "trenches", label: "Pons Trenches" },
-  { id: "wallets", label: "Smart Money" },
-  { id: "portfolio", label: "Portfolio" },
-  { id: "sat", label: "Hold SAT", isNew: true },
+type View = "terminal" | "explore" | "radar" | "trenches" | "wallets" | "portfolio" | "sat";
+const VIEWS: { id: View; label: string; short: string; icon: React.ReactNode; hint: string; isNew?: boolean; mobile?: boolean }[] = [
+  { id: "terminal", label: "Terminal", short: "Trade", icon: <IconTerminal />, hint: "Charts, analysis, trade and the agent", mobile: true },
+  { id: "explore", label: "Explore", short: "Explore", icon: <IconExplore />, hint: "Every live Pons launch, GMGN style", isNew: true, mobile: true },
+  { id: "radar", label: "Whale Radar", short: "Whales", icon: <IconRadar />, hint: "Big buys, sells and money flow", mobile: true },
+  { id: "trenches", label: "Pons Trenches", short: "Trenches", icon: <IconFlame />, hint: "New, hot and graduating curves" },
+  { id: "wallets", label: "Smart Money", short: "Wallets", icon: <IconBrain />, hint: "Top traders and what they buy" },
+  { id: "portfolio", label: "Portfolio", short: "Portfolio", icon: <IconPie />, hint: "Your holdings and PnL", mobile: true },
+  { id: "sat", label: "Hold SAT", short: "SAT", icon: <IconDiamond />, hint: "SAT token, tiers and perks", mobile: true },
 ];
 const isView = (v: string | null): v is View => VIEWS.some((x) => x.id === v);
+
+/** The command palette, inside the wallet provider so it can offer wallet actions. */
+function PaletteHost(props: { tokens: TokenMarket[]; officialToken?: string; onOpenToken: (address: string) => void; onView: (id: string) => void }) {
+  const wallet = useWallet();
+  const { market: sat } = useSat();
+  const actions = useMemo(
+    () => [
+      ...(wallet.address
+        ? [{ label: "My portfolio", hint: "Holdings and PnL for the connected wallet", icon: <IconPie />, run: () => props.onView("portfolio") }]
+        : [{ label: "Connect wallet", hint: "MetaMask, Rabby, Coinbase and more", icon: <IconWallet />, run: () => void wallet.connect() }]),
+      { label: "Buy SAT", hint: "Open the SAT pool on Pons", icon: <IconDiamond />, run: () => window.open(sat?.buyUrl ?? "/app?view=sat", "_blank", "noopener") },
+      { label: "Daily flow report", hint: "The last 24h on Robinhood Chain", icon: <IconReport />, run: () => window.open("/report", "_blank", "noopener") },
+      { label: "Trending launches", hint: "Most traded Pons curves right now", icon: <IconBolt />, run: () => props.onView("explore") },
+    ],
+    [wallet, sat, props],
+  );
+  return (
+    <CommandPalette
+      tokens={props.tokens}
+      officialToken={props.officialToken}
+      views={VIEWS.map((v) => ({ id: v.id, label: v.label, icon: v.icon, hint: v.hint }))}
+      onOpenToken={props.onOpenToken}
+      onView={props.onView}
+      actions={actions}
+    />
+  );
+}
 
 export default function Terminal() {
   const [view, setView] = useState<View>("terminal");
@@ -205,15 +240,21 @@ export default function Terminal() {
           <span className={!market || market.source === "robinhood-chain" ? "dot live" : "dot"} />
           {market?.chain.name ?? "Robinhood Chain"}
         </span>
-        <div className="tfs view-tabs" role="tablist">
+        <nav className="tfs view-tabs" role="tablist">
           {VIEWS.map((v) => (
-            <button key={v.id} className={`tf ${view === v.id ? "active" : ""}`} onClick={() => switchView(v.id)}>
-              {v.label}
+            <button key={v.id} className={`tf ${view === v.id ? "active" : ""}`} onClick={() => switchView(v.id)} title={v.hint}>
+              {v.icon}
+              <span className="view-label">{v.label}</span>
               {v.isNew && <span className="new-tag">NEW</span>}
             </button>
           ))}
-        </div>
+        </nav>
         <div className="spacer" />
+        <button className="cmdk-trigger" onClick={() => window.dispatchEvent(new Event("sat:palette"))} title="Search tokens, views and actions">
+          <IconSearch />
+          <span>Search</span>
+          <kbd>⌘K</kbd>
+        </button>
         <SatPill onOpen={() => switchView("sat")} />
         <AlertsCenter
           onOpenToken={(token, url) => void openToken(token, url)}
@@ -221,13 +262,23 @@ export default function Terminal() {
           onOpenSat={() => switchView("sat")}
           agentEnabled={market?.agentEnabled ?? false}
         />
-        {market && !market.execution.enabled && (
-          <span className="pill quiet" title="Trade execution is disabled on this deployment; SAT only previews trades">
-            preview only
-          </span>
-        )}
         <ConnectButton onPortfolio={() => switchView("portfolio")} />
       </header>
+
+      <PaletteHost
+        tokens={allTokens}
+        officialToken={market?.satToken}
+        onOpenToken={(address) => void openToken(address)}
+        onView={(id) => isView(id) && switchView(id)}
+      />
+      <nav className="mobile-nav" aria-label="Views">
+        {VIEWS.filter((v) => v.mobile).map((v) => (
+          <button key={v.id} className={view === v.id ? "active" : ""} onClick={() => switchView(v.id)}>
+            {v.icon}
+            <span>{v.short}</span>
+          </button>
+        ))}
+      </nav>
 
       {loadError && (
         <div className="banner error">
@@ -251,6 +302,7 @@ export default function Terminal() {
           onOpenToken={(token, venue) => void openToken(token, venue === "pons" ? ponsTokenUrl(token) : undefined)}
         />
       )}
+      {view === "explore" && <ExploreView onOpenToken={(token, url) => void openToken(token, url)} />}
       {view === "portfolio" && <PortfolioView explorer={explorer} onOpenToken={(token) => void openToken(token)} />}
       {view === "sat" && <SatView explorer={explorer} feeWallet={market?.execution.feeRecipient ?? null} />}
 
@@ -261,18 +313,52 @@ export default function Terminal() {
             <div className="spacer" />
             {market && <span className="dim">{market.tokens.length}</span>}
           </div>
-          <TokenList tokens={market?.tokens ?? []} selected={selected} onSelect={setSelected} />
+          <TokenList
+            tokens={market?.tokens ?? []}
+            selected={selected}
+            onSelect={setSelected}
+            onOpenAddress={(address) => void openToken(address)}
+            onExplore={() => switchView("explore")}
+            officialToken={market?.satToken}
+          />
         </section>
 
         <section className="col">
           <div className="toolbar">
             <div className="title">
-              {current?.token.logoUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img className="logo" src={current.token.logoUrl} alt="" />
-              )}
+              {current && <TokenAvatar src={current.token.logoUrl} symbol={current.token.symbol} seed={current.token.address} size={28} />}
               <span className="sym">{current?.token.symbol ?? selected ?? "—"}</span>
+              {current && market?.satToken && current.token.address.toLowerCase() === market.satToken.toLowerCase() && (
+                <span className="official" title="The official SAT token">✓</span>
+              )}
               <span className="muted">{current?.token.name}</span>
+              {current && (
+                <>
+                  <Flash value={current.priceUsd} className="tb-price mono">
+                    ${fmtPrice(current.priceUsd)}
+                  </Flash>
+                  {current.priceChange24hPct !== null && (
+                    <span className={`tb-chg mono ${current.priceChange24hPct >= 0 ? "up" : "down"}`}>{fmtPct(current.priceChange24hPct)}</span>
+                  )}
+                </>
+              )}
+              {current?.graduated && <span className="pill quiet">graduated · Uniswap v4</span>}
+              <SocialLinks socials={current?.profile?.socials} size={14} />
+              {current && (
+                <button
+                  className="pill quiet share-link"
+                  title="Copy a shareable link to this token"
+                  onClick={(e) => {
+                    const el = e.currentTarget;
+                    void navigator.clipboard.writeText(`${window.location.origin}/token/${current.token.address}`).then(() => {
+                      el.textContent = "link copied";
+                      setTimeout(() => (el.textContent = "share"), 1500);
+                    });
+                  }}
+                >
+                  share
+                </button>
+              )}
             </div>
             <div className="spacer" />
             <div className="tfs">

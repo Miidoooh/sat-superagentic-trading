@@ -5,17 +5,38 @@ export function fmtUsd(value: number | null, opts: { compact?: boolean } = {}): 
     if (abs >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
     if (abs >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
     if (abs >= 1e3) return `$${(value / 1e3).toFixed(1)}K`;
+    if (abs >= 100) return `$${value.toFixed(0)}`;
+    // Dollar amounts, unlike prices, never need sub-cent precision.
+    return `$${value.toFixed(2)}`;
   }
   return `$${fmtPrice(value)}`;
 }
 
+const SUBSCRIPT = "₀₁₂₃₄₅₆₇₈₉";
+
+/**
+ * Prices people can read. Tiny launch prices collapse their run of zeros into
+ * a subscript count, the way trading terminals show them: 0.00000394 → 0.0₅394.
+ */
 export function fmtPrice(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return "—";
   const abs = Math.abs(value);
+  if (abs === 0) return "0.00";
   if (abs >= 1000) return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
   if (abs >= 1) return value.toFixed(2);
   if (abs >= 0.01) return value.toFixed(4);
-  return value.toPrecision(3);
+  if (abs >= 0.0001) return value.toPrecision(3);
+  // Zeros between the decimal point and the first significant digit.
+  const zeros = Math.floor(-Math.log10(abs));
+  const digits = Math.round(abs * 10 ** (zeros + 4))
+    .toString()
+    .slice(0, 4)
+    .replace(/0+$/, "");
+  const sub = String(zeros)
+    .split("")
+    .map((d) => SUBSCRIPT[Number(d)])
+    .join("");
+  return `${value < 0 ? "-" : ""}0.0${sub}${digits || "0"}`;
 }
 
 export function fmtPct(value: number | null, digits = 2): string {

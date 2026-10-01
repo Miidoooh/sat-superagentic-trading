@@ -1,9 +1,10 @@
 "use client";
 
+import { ConnectButton as RainbowConnect } from "@rainbow-me/rainbowkit";
 import { useEffect, useRef, useState } from "react";
-import { shortAddr } from "./follows";
 import { useWallet } from "./wallet";
 
+/** RainbowKit's connect flow in SAT's own top-bar style. */
 export default function ConnectButton({ onPortfolio }: { onPortfolio: () => void }) {
   const wallet = useWallet();
   const [open, setOpen] = useState(false);
@@ -19,87 +20,86 @@ export default function ConnectButton({ onPortfolio }: { onPortfolio: () => void
     return () => document.removeEventListener("mousedown", close);
   }, [open]);
 
-  const wrongChain = wallet.address && wallet.chainId !== null && wallet.chainId !== wallet.chain.id;
-
-  if (!wallet.address) {
-    const many = wallet.options.length > 1;
-    return (
-      <div className="wallet-menu" ref={ref}>
-        <button
-          className="btn sm primary"
-          disabled={wallet.connecting}
-          onClick={() => (many ? setOpen((o) => !o) : void wallet.connect())}
-        >
-          {wallet.connecting ? "Connecting…" : "Connect wallet"}
-        </button>
-        {open && (
-          <div className="wallet-pop">
-            {wallet.options.map((o) => (
-              <button
-                key={o.id}
-                className="wallet-opt"
-                onClick={() => {
-                  setOpen(false);
-                  void wallet.connect(o.id);
-                }}
-              >
-                {o.icon && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={o.icon} alt="" />
-                )}
-                {o.name}
-              </button>
-            ))}
-          </div>
-        )}
-        {wallet.error && !open && <div className="wallet-error">{wallet.error}</div>}
-      </div>
-    );
-  }
-
   return (
-    <div className="wallet-menu" ref={ref}>
-      <button className={`pill wallet-pill ${wrongChain ? "warn" : "ok"}`} onClick={() => setOpen((o) => !o)}>
-        <span className="dot" />
-        {shortAddr(wallet.address)}
-        {wrongChain && " · switch network"}
-      </button>
-      {open && (
-        <div className="wallet-pop">
-          <button
-            className="wallet-opt"
-            onClick={() => {
-              setOpen(false);
-              onPortfolio();
-            }}
-          >
-            My portfolio
-          </button>
-          <button
-            className="wallet-opt"
-            onClick={() => {
-              void navigator.clipboard.writeText(wallet.address!).then(() => {
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              });
-            }}
-          >
-            {copied ? "Copied" : "Copy address"}
-          </button>
-          <a className="wallet-opt" href={`${wallet.chain.explorer}/address/${wallet.address}`} target="_blank" rel="noreferrer noopener">
-            View on explorer ↗
-          </a>
-          <button
-            className="wallet-opt"
-            onClick={() => {
-              setOpen(false);
-              wallet.disconnect();
-            }}
-          >
-            Disconnect
-          </button>
-        </div>
-      )}
-    </div>
+    <RainbowConnect.Custom>
+      {({ account, chain, openConnectModal, openChainModal, openAccountModal, mounted, authenticationStatus }) => {
+        const ready = mounted && authenticationStatus !== "loading";
+        if (!ready) return <div className="wallet-menu" aria-hidden style={{ opacity: 0, pointerEvents: "none" }} />;
+        if (!account || !chain) {
+          return (
+            <button className="btn sm primary" onClick={openConnectModal}>
+              Connect wallet
+            </button>
+          );
+        }
+        if (chain.unsupported) {
+          return (
+            <button className="pill warn wallet-pill" onClick={openChainModal}>
+              <span className="dot" />
+              Switch to Robinhood Chain
+            </button>
+          );
+        }
+        return (
+          <div className="wallet-menu" ref={ref}>
+            <button className="pill ok wallet-pill" onClick={() => setOpen((o) => !o)}>
+              {account.ensAvatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img className="wallet-avatar" src={account.ensAvatar} alt="" />
+              ) : (
+                <span className="dot" />
+              )}
+              {account.displayName}
+              {account.displayBalance && <span className="dim">{account.displayBalance}</span>}
+            </button>
+            {open && (
+              <div className="wallet-pop">
+                <button
+                  className="wallet-opt"
+                  onClick={() => {
+                    setOpen(false);
+                    onPortfolio();
+                  }}
+                >
+                  My portfolio
+                </button>
+                <button
+                  className="wallet-opt"
+                  onClick={() => {
+                    setOpen(false);
+                    openAccountModal();
+                  }}
+                >
+                  Wallet details
+                </button>
+                <button
+                  className="wallet-opt"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(account.address).then(() => {
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 1500);
+                    });
+                  }}
+                >
+                  {copied ? "Copied" : "Copy address"}
+                </button>
+                <a className="wallet-opt" href={`${wallet.chain.explorer}/address/${account.address}`} target="_blank" rel="noreferrer noopener">
+                  View on explorer ↗
+                </a>
+                <button
+                  className="wallet-opt"
+                  onClick={() => {
+                    setOpen(false);
+                    wallet.disconnect();
+                  }}
+                >
+                  Disconnect
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      }}
+    </RainbowConnect.Custom>
   );
 }
