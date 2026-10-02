@@ -5,7 +5,11 @@
  *
  *   npm run worker
  */
+import { picksFor } from "../src/lib/agent/picks";
+import { STYLE_PRESETS, type Strategy } from "../src/lib/agent/strategy";
+import { recordPicks } from "../src/lib/agent/track";
 import { detectAlerts, type AlertItem, type AlertSettings } from "../src/lib/alerts/detect";
+import { exploreUniverse } from "../src/lib/radar/explore";
 import { tierOf } from "../src/lib/sat/gate";
 import { evaluateRules, newRuleState, planPoll, type RuleState } from "../src/lib/alerts/rules";
 import { getProvider } from "../src/lib/data/provider";
@@ -19,6 +23,7 @@ import { buildFlowReport, REPORT_KEY } from "../src/lib/report/flow";
 import {
   formatAlert,
   formatAlpha,
+  formatPick,
   formatReport,
   listSubscriptions,
   markSent,
@@ -144,6 +149,47 @@ async function postAlpha(state: AlphaState, radars: Map<string, RadarSnapshot>, 
   }
 }
 
+const AGENT_EVERY = Math.round(2 * 60_000 / TICK_MS);
+const PRESETS = ["sniper", "momentum", "graduation", "whale"] as const;
+
+/**
+ * Run every preset style so their public track records build around the
+ * clock, then send each linked user the new picks for their own style.
+ */
+async function runAgents(live: RobinhoodChainProvider) {
+  const { rows } = await exploreUniverse(live);
+  const marks = new Map(rows.filter((r) => r.mcapUsd).map((r) => [r.token.toLowerCase(), r.mcapUsd as number]));
+  const byStyle = new Map<string, Awaited<ReturnType<typeof picksFor>>>();
+  const picks = async (s: Strategy) => {
+    const key = JSON.stringify(s);
+    if (!byStyle.has(key)) byStyle.set(key, await picksFor(live, s, 5));
+    return byStyle.get(key)!;
+  };
+  for (const preset of PRESETS) {
+    const r = await picks(STYLE_PRESETS[preset]);
+    await recordPicks(preset, r.picks, marks);
+  }
+  const cfg = telegramConfig();
+  if (!cfg) return;
+  for (const { token, sub } of await listSubscriptions()) {
+    if (!sub.agent?.enabled) continue;
+    try {
+      const tier = await tierOf(sub.wallet);
+      const { picks: found } = await picks(sub.agent.strategy);
+      let sent = 0;
+      for (const p of found) {
+        if (sent >= (tier.id === "free" ? 1 : 3)) break;
+        if (!(await markSent(token, `pick:${p.token}`))) continue;
+        await sendMessage(cfg, sub.chatId, formatPick(p, sub.agent.strategy.name, cfg.siteUrl));
+        sent++;
+      }
+      if (sent) log(`sent ${sent} agent pick(s) to chat ${sub.chatId}`);
+    } catch (err) {
+      log("agent picks failed", sub.chatId, message(err));
+    }
+  }
+}
+
 const REPORT_EVERY = Math.round(10 * 60_000 / TICK_MS);
 const REPORT_POST_HOUR_UTC = Number(process.env.REPORT_POST_HOUR_UTC ?? 14);
 
@@ -205,6 +251,7 @@ function main() {
       await deliver(live, states, radars, trenches, markets);
       await postAlpha(alpha, radars, trenches).catch((err) => log("alpha failed", message(err)));
       if (tick % REPORT_EVERY === 0) await runReport(live).catch((err) => log("report failed", message(err)));
+      if (tick % AGENT_EVERY === 0) await runAgents(live).catch((err) => log("agents failed", message(err)));
     } catch (err) {
       log("tick failed", message(err));
     }

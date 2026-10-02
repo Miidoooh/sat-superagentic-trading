@@ -11,6 +11,10 @@ const emptyToUndef = (v: unknown) => (v === "" ? undefined : v);
 const EnvSchema = z.object({
   OPENAI_API_KEY: z.preprocess(emptyToUndef, z.string().optional()),
   OPENAI_MODEL: z.string().default("gpt-4o"),
+  /** Kimi (Moonshot). When set, the agent thinks with Kimi instead of OpenAI. */
+  MOONSHOT_API_KEY: z.preprocess(emptyToUndef, z.string().optional()),
+  MOONSHOT_MODEL: z.string().default("kimi-k3"),
+  MOONSHOT_BASE_URL: z.string().url().default("https://api.moonshot.ai/v1"),
 
   /** Defaults target Robinhood Chain mainnet. */
   RH_CHAIN_ID: z.coerce.number().int().positive().default(ROBINHOOD_MAINNET.chainId),

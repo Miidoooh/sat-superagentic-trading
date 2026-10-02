@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { DEFAULT_ALERT_SETTINGS, type AlertItem, type AlertSettings } from "../alerts/detect";
+import { StrategySchema, type Pick, type Strategy } from "../agent/strategy";
 import { RuleListSchema, type Rule } from "../alerts/rules";
+import { fmtUsd } from "../format";
 import type { FlowReport } from "../report/flow";
 import type { TierId } from "../sat/tiers";
 import { getKv } from "../store/kv";
@@ -47,6 +49,8 @@ export const SubscriptionSchema = z.object({
     .default(DEFAULT_ALERT_SETTINGS),
   follows: z.array(z.string().regex(/^0x[0-9a-fA-F]{40}$/)).max(100).default([]),
   rules: RuleListSchema.default([]),
+  /** The user's agent style; when enabled the worker sends its new picks. */
+  agent: z.object({ enabled: z.boolean(), strategy: StrategySchema }).nullable().default(null),
 });
 
 export interface Subscription {
@@ -57,6 +61,7 @@ export interface Subscription {
   settings: AlertSettings;
   follows: string[];
   rules: Rule[];
+  agent?: { enabled: boolean; strategy: Strategy } | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -99,15 +104,29 @@ export async function sendPhoto(cfg: TelegramConfig, chatId: number | string, ph
   await api(cfg, "sendPhoto", { chat_id: chatId, photo: photoUrl, caption: captionHtml, parse_mode: "HTML" });
 }
 
+/** A new agent pick for the user's style, with its plan and a link to buy. */
+export function formatPick(p: Pick, styleName: string, siteUrl: string): string {
+  const money = (n: number) => fmtUsd(n, { compact: true });
+  const targets = p.plan.targets.map((t) => `${t.sellPct}% at ${money(t.mcap)} (${t.atX}×)`).join(", ");
+  return [
+    `🛰 <b>New pick for ${escape(styleName)}: ${escape(p.symbol)}</b> · fit ${p.score}`,
+    `${money(p.mcapUsd)} mcap${p.ageMin !== null ? ` · ${p.ageMin < 120 ? `${p.ageMin}m` : `${Math.round(p.ageMin / 60)}h`} old` : ""}${p.net30mUsd > 0 ? ` · +${money(p.net30mUsd)} net 30m` : ""}`,
+    ...p.warnings.map((w) => `⚠️ ${escape(w)}`),
+    `Plan: buy ${money(p.plan.buyUsd)} now, sell ${targets}. Stop at ${money(p.plan.stop.mcap)} (−${p.plan.stop.pct}%).`,
+    `<a href="${siteUrl}/app?token=${p.token}">Chart and buy on SAT</a> · <a href="${siteUrl}/app?view=agent">Your agent</a>`,
+  ].join("\n");
+}
+
 /** The daily report caption for the alpha channel. */
 export function formatReport(r: FlowReport, siteUrl: string): string {
   const usd = (n: number) => `$${Math.abs(n) >= 1e6 ? `${(Math.abs(n) / 1e6).toFixed(2)}M` : `${(Math.abs(n) / 1e3).toFixed(1)}K`}`;
   const lines = [
-    `<b>Robinhood Chain, last 24h</b>`,
-    `${usd(r.totals.volumeUsd)} volume · ${r.totals.trades.toLocaleString("en-US")} trades · ${r.pons.launches} Pons launches`,
+    `<b>What the degens bought, last 24h</b>`,
+    `${usd(r.totals.ponsUsd)} token volume · ${r.pons.launches} launches · ${r.pons.graduations} graduated`,
     "",
-    ...r.inflows.slice(0, 3).map((f) => `🟢 ${escape(f.symbol)} +${usd(f.netUsd)} net inflow`),
-    ...r.outflows.slice(0, 2).map((f) => `🔴 ${escape(f.symbol)} −${usd(f.netUsd)} net outflow`),
+    ...r.inflows.slice(0, 3).map((f) => `🔥 ${escape(f.symbol)} +${usd(f.netUsd)} net in`),
+    ...r.biggestBuys.slice(0, 1).map((t) => `🐋 ${usd(t.usd)} buy of ${escape(t.symbol)}`),
+    ...r.outflows.slice(0, 2).map((f) => `🩸 ${escape(f.symbol)} −${usd(f.netUsd)} net out`),
     "",
     `<a href="${siteUrl}/report">Full report</a> · <a href="${siteUrl}/app">Live on SAT</a>`,
   ];

@@ -2,11 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { erc20Abi, formatUnits } from "viem";
-import { ponsTokenUrl } from "@/lib/chain/constants";
 import { fmtUsd } from "@/lib/format";
 import type { TokenMarket } from "@/lib/types";
 import { executeTrade } from "./tradeExec";
-import { useSat } from "./sat";
+import { setMood } from "./brand/mood";
 import { TRADED_EVENT, useWallet } from "./wallet";
 
 interface Quote {
@@ -53,8 +52,6 @@ export default function TradePanel({ market, executionEnabled, maxTradeNative, m
   const [log, setLog] = useState<{ text: string; href?: string; tone?: "ok" | "bad" }[]>([]);
   const [balances, setBalances] = useState<{ native: number | null; token: number | null }>({ native: null, token: null });
 
-  const { market: sat } = useSat();
-  const isSat = !!market && !!sat && market.token.address.toLowerCase() === sat.address.toLowerCase();
   // Live curves are paid in their pair asset; SAT's v4 route and stocks take native ETH.
   const payAsset = market?.venue === "pons" && !market.graduated ? market.quoteSymbol : nativeSymbol;
   const payIsNative = payAsset === nativeSymbol;
@@ -149,6 +146,7 @@ export default function TradePanel({ market, executionEnabled, maxTradeNative, m
         (text, href) => setLog((l) => [...l, { text, href }]),
       );
       setLog((l) => [...l, { text: `${side === "buy" ? "Bought" : "Sold"} ${built.symbol}. Received at least ${built.minOut}.`, tone: "ok" }]);
+      setMood("pump");
       setAmount("");
       void refreshBalances();
     } catch (e) {
@@ -160,25 +158,6 @@ export default function TradePanel({ market, executionEnabled, maxTradeNative, m
   }
 
   if (!market || !token) return null;
-
-  if (market.graduated && !isSat) {
-    return (
-      <div className="trade-panel trade-graduated">
-        <div className="trade-tabs">
-          <strong>{token.symbol}</strong>
-          <div className="spacer" />
-          <span className="dim trade-venue">Uniswap v4</span>
-        </div>
-        <p className="muted">
-          {token.symbol} graduated from its Pons curve and now trades in a Uniswap v4 pool. Trading v4 pools directly from SAT is coming next; until
-          then, trade it on Pons.
-        </p>
-        <a className="btn primary trade-cta" href={ponsTokenUrl(token.address)} target="_blank" rel="noreferrer noopener">
-          Trade {token.symbol} on Pons ↗
-        </a>
-      </div>
-    );
-  }
 
   const q = quote?.quote ?? null;
   const blocked = quote && !quote.ok ? quote.errors : [];

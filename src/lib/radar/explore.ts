@@ -33,6 +33,9 @@ export interface ExploreRow {
   launchedAt: number | null;
   graduatedAt: number | null;
   quoteSymbol: string;
+  /** What a buy pays with, and its USD price: the curve's quote asset, or ETH once graduated. */
+  paySymbol: string;
+  payUsd: number;
   priceUsd: number | null;
   mcapUsd: number | null;
   raisedUsd: number;
@@ -94,6 +97,8 @@ async function buildBase(provider: RobinhoodChainProvider): Promise<Base> {
       launchedAt: blockTime(clock, s.launch.block),
       graduatedAt: null,
       quoteSymbol: s.quote.symbol,
+      paySymbol: s.quote.symbol,
+      payUsd: s.quote.usd,
       priceUsd: s.priceUsd,
       mcapUsd: s.priceUsd * SUPPLY,
       raisedUsd: s.raisedUsd,
@@ -122,6 +127,8 @@ async function buildBase(provider: RobinhoodChainProvider): Promise<Base> {
       launchedAt: launch ? blockTime(clock, launch.block) : null,
       graduatedAt: blockTime(clock, g.block),
       quoteSymbol: quote?.symbol ?? "",
+      paySymbol: "ETH",
+      payUsd: book.ethUsd,
       priceUsd,
       mcapUsd: priceUsd !== null ? priceUsd * SUPPLY : null,
       raisedUsd: seedUsd,
@@ -138,7 +145,13 @@ async function buildBase(provider: RobinhoodChainProvider): Promise<Base> {
 }
 
 async function base(provider: RobinhoodChainProvider): Promise<Base> {
-  return cache.get("explore:base", BASE_TTL, () => buildBase(provider), { swr: true });
+  return cache.get("explore:base:v2", BASE_TTL, () => buildBase(provider), { swr: true });
+}
+
+/** Every scanned launch, curves and graduated, without logos or socials. */
+export async function exploreUniverse(provider: RobinhoodChainProvider): Promise<{ rows: Base["curves"]; scanned: number; updatedAt: number }> {
+  const b = await base(provider);
+  return { rows: [...b.curves, ...b.graduated], scanned: b.curves.length, updatedAt: b.updatedAt };
 }
 
 const DEFAULT_SORT: Record<ExploreTab, ExploreSort> = { new: "age", trending: "volume", almost: "progress", graduated: "age" };

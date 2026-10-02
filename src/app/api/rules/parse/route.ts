@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
 import { z } from "zod";
+import { isAuthError, jsonCompletion, getLlm } from "@/lib/agent/llm";
 import { describeRule, RuleSchema, type Rule } from "@/lib/alerts/rules";
-import { getConfig } from "@/lib/config";
 import { getProvider } from "@/lib/data/provider";
 import { errorResponse, rateLimit } from "@/lib/http";
 
@@ -42,21 +41,11 @@ const Draft = z.object({
 export async function POST(req: Request) {
   const limited = rateLimit(req, "rules-parse", 20);
   if (limited) return limited;
-  const cfg = getConfig();
-  if (!cfg.OPENAI_API_KEY) return NextResponse.json({ error: "Plain-language rules need the agent (OPENAI_API_KEY)." }, { status: 501 });
+  const llm = getLlm("low");
+  if (!llm) return NextResponse.json({ error: "Plain-language rules need the agent (MOONSHOT_API_KEY or OPENAI_API_KEY)." }, { status: 501 });
   try {
     const { text } = Body.parse(await req.json());
-    const client = new OpenAI({ apiKey: cfg.OPENAI_API_KEY });
-    const completion = await client.chat.completions.create({
-      model: cfg.OPENAI_MODEL,
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: SYSTEM },
-        { role: "user", content: text },
-      ],
-    });
-    const draft = Draft.parse(JSON.parse(completion.choices[0]?.message?.content ?? "{}"));
+    const draft = Draft.parse(await jsonCompletion(llm, SYSTEM, text));
 
     const provider = getProvider();
     const rules: Rule[] = [];
@@ -77,7 +66,7 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ rules: rules.map((r) => ({ ...r, summary: describeRule(r) })) });
   } catch (err) {
-    if (err instanceof OpenAI.APIError && (err.status === 401 || err.status === 403)) {
+    if (isAuthError(err)) {
       return NextResponse.json({ error: "The agent is unavailable right now, so rules cannot be created." }, { status: 503 });
     }
     if (err instanceof z.ZodError || err instanceof SyntaxError) {

@@ -3,8 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fmtAgo, fmtPrice, fmtUsd } from "@/lib/format";
 import type { ExplorePage, ExploreRow, ExploreSort, ExploreTab } from "@/lib/radar/explore";
+import { setMood } from "./brand/mood";
 import { Flash } from "./Flash";
 import { SocialLinks, TokenAvatar } from "./TokenAvatar";
+import { executeTrade } from "./tradeExec";
+import { useWallet } from "./wallet";
 
 const REFRESH_MS = 10_000;
 /** Launches younger than this get a NEW badge. */
@@ -28,6 +31,15 @@ const SORTS: { id: ExploreSort; label: string }[] = [
 
 const MCAPS = [0, 5_000, 20_000, 100_000];
 const VOLS = [0, 500, 5_000, 25_000];
+const QUICK_USD = [5, 10, 25, 50, 100];
+const QUICK_KEY = "sat:quickbuy";
+
+interface QuickStatus {
+  text: string;
+  href?: string;
+  tone?: "ok" | "bad";
+  busy?: boolean;
+}
 
 interface Props {
   onOpenToken: (token: string, url?: string) => void;
@@ -108,6 +120,41 @@ export default function ExploreView({ onOpenToken }: Props) {
   const rows = page?.tab === tab ? page.rows : [];
   const open = (r: ExploreRow) => onOpenToken(r.token, r.url);
 
+  const wallet = useWallet();
+  const [quickUsd, setQuickUsd] = useState(10);
+  const [buys, setBuys] = useState<Record<string, QuickStatus>>({});
+  useEffect(() => {
+    const saved = Number(localStorage.getItem(QUICK_KEY));
+    if (QUICK_USD.includes(saved)) setQuickUsd(saved);
+  }, []);
+  const pickQuick = (v: number) => {
+    setQuickUsd(v);
+    localStorage.setItem(QUICK_KEY, String(v));
+  };
+  const quickAmount = (r: ExploreRow) => (r.payUsd > 0 ? Number((quickUsd / r.payUsd).toPrecision(3)) : 0);
+
+  async function quickBuy(r: ExploreRow) {
+    const amount = quickAmount(r);
+    if (!amount) return;
+    const set = (s: QuickStatus | null) =>
+      setBuys((b) => {
+        const next = { ...b };
+        if (s) next[r.token] = s;
+        else delete next[r.token];
+        return next;
+      });
+    set({ text: "Preparing…", busy: true });
+    try {
+      const built = await executeTrade({ side: "buy", token: r.token, amount }, wallet, (text, href) => set({ text, href, busy: true }));
+      set({ text: `Bought ≥ ${built.minOut}`, tone: "ok" });
+      setMood("pump");
+    } catch (e) {
+      const msg = (e as Error).message;
+      set({ text: /user rejected|denied/i.test(msg) ? "Cancelled" : msg, tone: "bad" });
+    }
+    setTimeout(() => set(null), 9_000);
+  }
+
   return (
     <div className="live ex">
       <div className="ex-head">
@@ -148,6 +195,14 @@ export default function ExploreView({ onOpenToken }: Props) {
         <button className={`chip ${socials ? "on" : ""}`} onClick={() => setSocials((s) => !s)} title="Only tokens that list an X, Telegram, Discord or website">
           Has socials
         </button>
+        <div className="ex-group" title="One tap buys this much of a token. You still sign every trade in your wallet.">
+          <span className="dim">⚡ Quick buy</span>
+          {QUICK_USD.map((v) => (
+            <button key={v} className={`chip ${quickUsd === v ? "on" : ""}`} onClick={() => pickQuick(v)}>
+              ${v}
+            </button>
+          ))}
+        </div>
         <div className="spacer" />
         <label className="ex-sort">
           <span className="dim">Sort</span>
@@ -214,9 +269,31 @@ export default function ExploreView({ onOpenToken }: Props) {
               {r.priceUsd !== null ? `$${fmtPrice(r.priceUsd)}` : "—"}
             </Flash>
             <span className="ex-actions">
-              <a className="btn sm" href={r.url} target="_blank" rel="noreferrer noopener" onClick={(e) => e.stopPropagation()} title="Trade on Pons">
-                Trade ↗
+              <button
+                className="btn sm ex-quick"
+                disabled={!!buys[r.token]?.busy || !quickAmount(r)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void quickBuy(r);
+                }}
+                title={`Buy $${quickUsd} of ${r.symbol} (${quickAmount(r)} ${r.paySymbol}). You sign it in your wallet.`}
+              >
+                ⚡ ${quickUsd}
+              </button>
+              <a className="btn sm ghost ex-pons" href={r.url} target="_blank" rel="noreferrer noopener" onClick={(e) => e.stopPropagation()} title="Open on Pons">
+                ↗
               </a>
+              {buys[r.token] && (
+                <span className={`ex-qstatus ${buys[r.token].tone ?? ""}`} onClick={(e) => e.stopPropagation()}>
+                  {buys[r.token].href ? (
+                    <a href={buys[r.token].href} target="_blank" rel="noreferrer noopener">
+                      {buys[r.token].text}
+                    </a>
+                  ) : (
+                    buys[r.token].text
+                  )}
+                </span>
+              )}
             </span>
           </div>
         ))}

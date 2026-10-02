@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { agentAvailable } from "@/lib/agent/llm";
 import { executionEnabled, getConfig, tradeFeeBps } from "@/lib/config";
 import { getProvider } from "@/lib/data/provider";
 import { errorResponse } from "@/lib/http";
@@ -31,7 +32,7 @@ export async function GET() {
         feeBps: tradeFeeBps(cfg),
         feeRecipient: cfg.SAT_FEE_RECIPIENT ?? null,
       },
-      agentEnabled: Boolean(cfg.OPENAI_API_KEY),
+      agentEnabled: agentAvailable(cfg),
       satToken: cfg.SAT_TOKEN_ADDRESS,
       tokens,
     });

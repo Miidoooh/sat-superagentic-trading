@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AgentChat from "@/components/AgentChat";
+import AgentView from "@/components/agent/AgentView";
 import AlertsCenter from "@/components/AlertsCenter";
 import ChartPanel from "@/components/ChartPanel";
 import ConnectButton from "@/components/ConnectButton";
@@ -12,8 +13,10 @@ import Logo from "@/components/Logo";
 import PonsTokenPanel from "@/components/PonsTokenPanel";
 import PonsTrenches from "@/components/PonsTrenches";
 import PortfolioView from "@/components/PortfolioView";
+import HomeView from "@/components/brand/HomeView";
+import MascotStatus from "@/components/brand/MascotStatus";
 import CommandPalette from "@/components/CommandPalette";
-import { IconBolt, IconBrain, IconDiamond, IconExplore, IconFlame, IconPie, IconRadar, IconReport, IconSearch, IconTerminal, IconWallet } from "@/components/icons";
+import { IconAgent, IconBolt, IconBrain, IconDiamond, IconExplore, IconFlame, IconHome, IconPie, IconRadar, IconReport, IconSearch, IconTerminal, IconWallet } from "@/components/icons";
 import { SatPill, SatProvider, useSat } from "@/components/sat";
 import SatView from "@/components/SatView";
 import { SocialLinks, TokenAvatar } from "@/components/TokenAvatar";
@@ -29,6 +32,7 @@ import "../live.css";
 import "../smart.css";
 import "../v2.css";
 import "../v3.css";
+import "../agent.css";
 
 interface MarketResponse {
   source: string;
@@ -51,16 +55,19 @@ const ALL_TF: Timeframe[] = ["5m", "15m", "1h", "4h", "1d"];
 const PONS_TF: Timeframe[] = ["5m", "15m", "1h", "4h"];
 const isAddress = (s: string) => /^0x[0-9a-fA-F]{40}$/.test(s);
 
-type View = "terminal" | "explore" | "radar" | "trenches" | "wallets" | "portfolio" | "sat";
+type View = "home" | "terminal" | "explore" | "agent" | "radar" | "trenches" | "wallets" | "portfolio" | "sat";
 const VIEWS: { id: View; label: string; short: string; icon: React.ReactNode; hint: string; isNew?: boolean; mobile?: boolean }[] = [
+  { id: "home", label: "Home", short: "Home", icon: <IconHome />, hint: "What matters right now, in plain words", mobile: true },
   { id: "terminal", label: "Terminal", short: "Trade", icon: <IconTerminal />, hint: "Charts, analysis, trade and the agent", mobile: true },
-  { id: "explore", label: "Explore", short: "Explore", icon: <IconExplore />, hint: "Every live Pons launch, GMGN style", isNew: true, mobile: true },
+  { id: "explore", label: "Explore", short: "Explore", icon: <IconExplore />, hint: "Every live Pons launch, GMGN style", mobile: true },
+  { id: "agent", label: "Your Agent", short: "Agent", icon: <IconAgent />, hint: "Picks for your style, with exact buy and sell levels", isNew: true, mobile: true },
   { id: "radar", label: "Whale Radar", short: "Whales", icon: <IconRadar />, hint: "Big buys, sells and money flow", mobile: true },
   { id: "trenches", label: "Pons Trenches", short: "Trenches", icon: <IconFlame />, hint: "New, hot and graduating curves" },
   { id: "wallets", label: "Smart Money", short: "Wallets", icon: <IconBrain />, hint: "Top traders and what they buy" },
-  { id: "portfolio", label: "Portfolio", short: "Portfolio", icon: <IconPie />, hint: "Your holdings and PnL", mobile: true },
-  { id: "sat", label: "Hold SAT", short: "SAT", icon: <IconDiamond />, hint: "SAT token, tiers and perks", mobile: true },
+  { id: "portfolio", label: "Portfolio", short: "Portfolio", icon: <IconPie />, hint: "Your holdings and PnL" },
+  { id: "sat", label: "Hold SAT", short: "SAT", icon: <IconDiamond />, hint: "SAT token, tiers and perks" },
 ];
+const MODE_KEY = "sat:mode";
 const isView = (v: string | null): v is View => VIEWS.some((x) => x.id === v);
 
 /** The command palette, inside the wallet provider so it can offer wallet actions. */
@@ -109,6 +116,8 @@ export default function Terminal() {
     const params = new URLSearchParams(window.location.search);
     const v = params.get("view");
     if (isView(v)) setView(v);
+    // Newcomers start in Simple mode; anyone who picked Pro keeps the terminal.
+    else if (!params.get("token") && !params.get("wallet") && localStorage.getItem(MODE_KEY) !== "pro") setView("home");
     const w = params.get("wallet");
     if (w && isAddress(w)) setWallet(w);
     const t = params.get("token");
@@ -117,6 +126,8 @@ export default function Terminal() {
 
   const switchView = useCallback((next: View, walletParam?: string) => {
     setView(next);
+    if (next === "home") localStorage.setItem(MODE_KEY, "simple");
+    if (next === "terminal") localStorage.setItem(MODE_KEY, "pro");
     const url = new URL(window.location.href);
     if (next === "terminal") url.searchParams.delete("view");
     else url.searchParams.set("view", next);
@@ -230,9 +241,18 @@ export default function Terminal() {
     <div className="app">
       <header className="topbar">
         <Link href="/" className="brand">
-          <Logo />
+          <Logo size={30} />
           <span className="brand-name">SAT</span>
         </Link>
+        <MascotStatus />
+        <div className="mode-switch" role="group" aria-label="Simple or Pro mode">
+          <button className={view === "home" ? "active" : ""} onClick={() => switchView("home")}>
+            Simple
+          </button>
+          <button className={view !== "home" ? "active" : ""} onClick={() => switchView(view === "home" ? "terminal" : view)}>
+            Pro
+          </button>
+        </div>
         <span
           className={`pill chain-pill ${!market || market.source === "robinhood-chain" ? "ok" : "warn"}`}
           title={market && market.source !== "robinhood-chain" ? `Data source: ${market.source}` : "Live Robinhood Chain mainnet data"}
@@ -302,7 +322,11 @@ export default function Terminal() {
           onOpenToken={(token, venue) => void openToken(token, venue === "pons" ? ponsTokenUrl(token) : undefined)}
         />
       )}
+      {view === "home" && (
+        <HomeView onOpenToken={(token) => void openToken(token)} onExplore={() => switchView("explore")} onRadar={() => switchView("radar")} />
+      )}
       {view === "explore" && <ExploreView onOpenToken={(token, url) => void openToken(token, url)} />}
+      {view === "agent" && <AgentView agentEnabled={market?.agentEnabled ?? false} onOpenToken={(token) => void openToken(token)} />}
       {view === "portfolio" && <PortfolioView explorer={explorer} onOpenToken={(token) => void openToken(token)} />}
       {view === "sat" && <SatView explorer={explorer} feeWallet={market?.execution.feeRecipient ?? null} />}
 

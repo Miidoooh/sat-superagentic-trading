@@ -1,7 +1,7 @@
-import OpenAI from "openai";
+import type OpenAI from "openai";
 import { z } from "zod";
-import { getConfig } from "../config";
 import { getProvider } from "../data/provider";
+import { getLlm } from "./llm";
 import { runTool, toolDefinitions, type Artifact } from "./tools";
 
 export const ChatRequestSchema = z.object({
@@ -36,9 +36,8 @@ Rules:
 }
 
 export async function runAgent(input: z.infer<typeof ChatRequestSchema>): Promise<AgentResponse> {
-  const cfg = getConfig();
-  if (!cfg.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured");
-  const client = new OpenAI({ apiKey: cfg.OPENAI_API_KEY });
+  const llm = getLlm("high");
+  if (!llm) throw new Error("The agent needs MOONSHOT_API_KEY (Kimi) or OPENAI_API_KEY");
   const source = getProvider().source;
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
@@ -49,12 +48,12 @@ export async function runAgent(input: z.infer<typeof ChatRequestSchema>): Promis
   const toolCalls: AgentResponse["toolCalls"] = [];
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    const completion = await client.chat.completions.create({
-      model: cfg.OPENAI_MODEL,
+    const completion = await llm.client.chat.completions.create({
+      model: llm.model,
       messages,
       tools: toolDefinitions,
-      temperature: 0.2,
-    });
+      ...llm.params,
+    } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
     const msg = completion.choices[0].message;
     messages.push(msg);
 

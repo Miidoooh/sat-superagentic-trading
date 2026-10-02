@@ -76,16 +76,56 @@ const v4Hop = (tokenIn: `0x${string}`, tokenOut: `0x${string}`): Hop => ({
   poolId: ZERO32,
 });
 
-export function satRoute(side: "buy" | "sell"): Hop[] {
-  const sat = getAddress(SAT_POOL_KEY.currency1);
-  const weth = getAddress(WRAPPED_NATIVE);
-  const usdg = getAddress(USDG.address);
-  return side === "buy" ? [v3Hop(weth, usdg), v4Hop(usdg, sat)] : [v4Hop(sat, usdg), v3Hop(usdg, weth)];
+/** A graduated launch's v4 pool, enough to route through it. */
+export interface V4Target {
+  token: `0x${string}`;
+  /** The launch's pair asset: the zero address for native ETH, or an ERC-20 such as USDG. */
+  pairToken: `0x${string}`;
+  pool: { fee: number; tickSpacing: number; hooks: `0x${string}` };
 }
 
-/** Calldata for one SAT trade. The recipient is the signer (address zero tells the router "msg.sender"). */
+export const SAT_TARGET: V4Target = {
+  token: getAddress(SAT_POOL_KEY.currency1),
+  pairToken: getAddress(USDG.address),
+  pool: { fee: SAT_POOL_KEY.fee, tickSpacing: SAT_POOL_KEY.tickSpacing, hooks: getAddress(SAT_POOL_KEY.hooks) },
+};
+
+const v4HopFor = (t: V4Target, tokenIn: `0x${string}`, tokenOut: `0x${string}`): Hop => ({
+  ...v4Hop(tokenIn, tokenOut),
+  fee: t.pool.fee,
+  tickSpacing: t.pool.tickSpacing,
+  hooks: getAddress(t.pool.hooks),
+});
+
+/**
+ * The route for a graduated launch, or null when its pair asset cannot be
+ * reached from ETH. Native-ETH pools take one v4 hop with ETH sent along
+ * (verified by simulation); USDG pools go through the v3 WETH/USDG pool first.
+ */
+export function routeFor(t: V4Target, side: "buy" | "sell"): Hop[] | null {
+  const token = getAddress(t.token);
+  if (t.pairToken.toLowerCase() === ZERO) return side === "buy" ? [v4HopFor(t, ZERO, token)] : [v4HopFor(t, token, ZERO)];
+  if (t.pairToken.toLowerCase() === USDG.address.toLowerCase()) {
+    const weth = getAddress(WRAPPED_NATIVE);
+    const usdg = getAddress(USDG.address);
+    return side === "buy" ? [v3Hop(weth, usdg), v4HopFor(t, usdg, token)] : [v4HopFor(t, token, usdg), v3Hop(usdg, weth)];
+  }
+  return null;
+}
+
+export function satRoute(side: "buy" | "sell"): Hop[] {
+  return routeFor(SAT_TARGET, side)!;
+}
+
+/** Calldata for one trade. The recipient is the signer (address zero tells the router "msg.sender"). */
+export function encodeV4Swap(t: V4Target, side: "buy" | "sell", amountIn: bigint, minOut: bigint): `0x${string}` {
+  const route = routeFor(t, side);
+  if (!route) throw new Error("This token's pool pairs with an asset SAT cannot route to yet.");
+  return encodeFunctionData({ abi: satRouterAbi, functionName: "swap", args: [route, ZERO, amountIn, minOut, 0n] });
+}
+
 export function encodeSatSwap(side: "buy" | "sell", amountIn: bigint, minOut: bigint): `0x${string}` {
-  return encodeFunctionData({ abi: satRouterAbi, functionName: "swap", args: [satRoute(side), ZERO, amountIn, minOut, 0n] });
+  return encodeV4Swap(SAT_TARGET, side, amountIn, minOut);
 }
 
 export function satApproveData(amount: bigint): `0x${string}` {
@@ -104,14 +144,14 @@ interface SimCall {
 }
 
 /** What the trader receives, read from the simulated transfers to them. */
-function receivedFrom(logs: SimLog[], side: "buy" | "sell", trader: string): bigint {
+function receivedFrom(logs: SimLog[], side: "buy" | "sell", trader: string, token: string): bigint {
   const who = trader.toLowerCase();
   let total = 0n;
   for (const l of logs) {
     if (l.topics[0] !== TRANSFER_TOPIC || `0x${(l.topics[2] ?? "").slice(26)}`.toLowerCase() !== who) continue;
-    const isSat = l.address.toLowerCase() === SAT_POOL_KEY.currency1.toLowerCase();
+    const isToken = l.address.toLowerCase() === token.toLowerCase();
     const isEth = l.address.toLowerCase() === NATIVE_SENTINEL;
-    if ((side === "buy" && isSat) || (side === "sell" && isEth)) total += BigInt(l.data);
+    if ((side === "buy" && isToken) || (side === "sell" && isEth)) total += BigInt(l.data);
   }
   return total;
 }
@@ -125,16 +165,24 @@ export interface SatQuote {
 /**
  * Simulate the real trade against live state. A sell includes its exact
  * approval in the same simulated block, so it quotes before the user approves.
+ * Without a wallet, sells are previewed from a known holder of the token.
  */
-export async function quoteSatSwap(side: "buy" | "sell", amountIn: bigint, wallet: `0x${string}` | null): Promise<SatQuote> {
-  const trader = wallet ?? (side === "buy" ? PREVIEW_BUYER : PREVIEW_HOLDER);
+export async function quoteV4Swap(
+  t: V4Target,
+  side: "buy" | "sell",
+  amountIn: bigint,
+  wallet: `0x${string}` | null,
+  previewHolder: `0x${string}` = PREVIEW_HOLDER,
+): Promise<SatQuote> {
+  const trader = wallet ?? (side === "buy" ? PREVIEW_BUYER : previewHolder);
   const swapCall = {
     from: trader,
     to: PONS_SWAP_ROUTER,
-    data: encodeSatSwap(side, amountIn, 0n),
+    data: encodeV4Swap(t, side, amountIn, 0n),
     ...(side === "buy" ? { value: `0x${amountIn.toString(16)}` } : {}),
   };
-  const calls = side === "buy" ? [swapCall] : [{ from: trader, to: getAddress(SAT_POOL_KEY.currency1), data: satApproveData(amountIn) }, swapCall];
+  const approve = { from: trader, to: getAddress(t.token), data: satApproveData(amountIn) };
+  const calls = side === "buy" ? [swapCall] : [approve, swapCall];
   // Previews top up gas money; a real wallet's buy is checked against its own balance first.
   const overrides = { [trader]: { balance: `0x${(parseEther("1000") + (side === "buy" ? amountIn : 0n)).toString(16)}` } };
   const result = (await getPublicClient().request({
@@ -142,23 +190,61 @@ export async function quoteSatSwap(side: "buy" | "sell", amountIn: bigint, walle
     params: [{ blockStateCalls: [{ stateOverrides: overrides, calls }], validation: false, traceTransfers: true }, "latest"],
   } as never)) as { calls: SimCall[] }[];
   const swap = result[0]?.calls[calls.length - 1];
-  if (!swap) throw new Error("Could not simulate this SAT trade.");
+  if (!swap) throw new Error("Could not simulate this trade.");
   if (swap.status !== "0x1") {
     const reason = swap.error?.message ?? "the router rejected it";
-    throw new Error(side === "sell" && !wallet ? `This sell is larger than the preview can simulate (${reason}).` : `SAT trade would fail: ${reason}`);
+    throw new Error(side === "sell" && !wallet ? `Connect a wallet to quote this sell exactly (${reason}).` : `Trade would fail: ${reason}`);
   }
-  const amountOut = receivedFrom(swap.logs, side, trader);
-  if (amountOut <= 0n) throw new Error("The SAT pool returned nothing for this amount.");
+  const amountOut = receivedFrom(swap.logs, side, trader, t.token);
+  if (amountOut <= 0n) throw new Error("The pool returned nothing for this amount.");
   return { amountOut, fromWallet: wallet !== null };
 }
 
-export async function satAllowance(owner: `0x${string}`): Promise<bigint> {
-  return getPublicClient().readContract({ address: getAddress(SAT_POOL_KEY.currency1), abi: erc20, functionName: "allowance", args: [owner, PONS_SWAP_ROUTER] });
+export const quoteSatSwap = (side: "buy" | "sell", amountIn: bigint, wallet: `0x${string}` | null) => quoteV4Swap(SAT_TARGET, side, amountIn, wallet);
+
+export async function routerAllowance(token: `0x${string}`, owner: `0x${string}`): Promise<bigint> {
+  return getPublicClient().readContract({ address: getAddress(token), abi: erc20, functionName: "allowance", args: [owner, PONS_SWAP_ROUTER] });
 }
 
-export async function satBalance(owner: `0x${string}`): Promise<bigint> {
-  return getPublicClient().readContract({ address: getAddress(SAT_POOL_KEY.currency1), abi: erc20, functionName: "balanceOf", args: [owner] });
+export async function tokenBalance(token: `0x${string}`, owner: `0x${string}`): Promise<bigint> {
+  return getPublicClient().readContract({ address: getAddress(token), abi: erc20, functionName: "balanceOf", args: [owner] });
 }
 
-export const fmtSat = (v: bigint) => `${Number(formatUnits(v, 18)).toLocaleString("en-US", { maximumFractionDigits: 2 })} SAT`;
+/**
+ * A wallet that holds at least `minBalance` of the token, found among recent
+ * recipients, so a sell can be previewed before the user connects.
+ */
+export async function findHolder(token: `0x${string}`, minBalance: bigint): Promise<`0x${string}` | null> {
+  const client = getPublicClient();
+  const latest = await client.getBlockNumber();
+  const logs = await client.getLogs({
+    address: getAddress(token),
+    event: { type: "event", name: "Transfer", inputs: [{ type: "address", name: "from", indexed: true }, { type: "address", name: "to", indexed: true }, { type: "uint256", name: "value" }] },
+    fromBlock: latest > 200_000n ? latest - 200_000n : 0n,
+    toBlock: latest,
+  });
+  const skip = new Set([ZERO, V4_POOL_MANAGER.toLowerCase(), PONS_SWAP_ROUTER.toLowerCase()]);
+  const seen = new Set<string>();
+  const candidates: `0x${string}`[] = [];
+  for (const l of logs.reverse()) {
+    const to = l.args.to?.toLowerCase();
+    if (!to || skip.has(to) || seen.has(to)) continue;
+    seen.add(to);
+    candidates.push(getAddress(to));
+    if (candidates.length >= 25) break;
+  }
+  if (!candidates.length) return null;
+  const balances = await client.multicall({
+    contracts: candidates.map((c) => ({ address: getAddress(token), abi: erc20, functionName: "balanceOf" as const, args: [c] as const })),
+    allowFailure: true,
+  });
+  const i = balances.findIndex((b) => b.status === "success" && (b.result as bigint) >= minBalance);
+  return i >= 0 ? candidates[i] : null;
+}
+
+export const satAllowance = (owner: `0x${string}`) => routerAllowance(SAT_TARGET.token, owner);
+export const satBalance = (owner: `0x${string}`) => tokenBalance(SAT_TARGET.token, owner);
+
+export const fmtTokens = (v: bigint, symbol: string) => `${Number(formatUnits(v, 18)).toLocaleString("en-US", { maximumFractionDigits: 2 })} ${symbol}`;
+export const fmtSat = (v: bigint) => fmtTokens(v, "SAT");
 export const fmtEth = (v: bigint, symbol = "ETH") => `${Number(formatEther(v)).toLocaleString("en-US", { maximumFractionDigits: 6 })} ${symbol}`;

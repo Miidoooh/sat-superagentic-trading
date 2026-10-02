@@ -8,7 +8,10 @@ import type { TrenchesSnapshot } from "@/lib/radar/trenches";
 import type { RadarSnapshot } from "@/lib/radar/whales";
 import type { TokenMarket } from "@/lib/types";
 import type { TierId } from "@/lib/sat/tiers";
+import { useAgentStyle, useAgentTelegram } from "./agent/agentStore";
 import { useRules, useTelegramLink } from "./alertStore";
+import { setMood } from "./brand/mood";
+import Satellite from "./brand/Satellite";
 import { useSat } from "./sat";
 import { useFollows } from "./follows";
 import RulesPanel from "./RulesPanel";
@@ -57,6 +60,8 @@ export default function AlertsCenter({ onOpenToken, onOpenWallet, onOpenSat, age
   const rules = useMemo(() => allRules.slice(0, tier.maxRules), [allRules, tier.maxRules]);
   const linkToken = link?.token ?? null;
   const proof = link?.proof;
+  const { strategy } = useAgentStyle();
+  const { enabled: agentTelegram } = useAgentTelegram();
 
   useEffect(() => setSettings(loadSettings()), []);
 
@@ -80,7 +85,7 @@ export default function AlertsCenter({ onOpenToken, onOpenWallet, onOpenSat, age
       const res = await fetch("/api/telegram/sync", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token: linkToken, settings, follows: follows.map((f) => f.address), rules: allRules, proof }),
+        body: JSON.stringify({ token: linkToken, settings, follows: follows.map((f) => f.address), rules: allRules, agent: { enabled: agentTelegram, strategy }, proof }),
       }).catch(() => null);
       if (res?.status === 404) return saveLink(null);
       const json = res ? ((await res.json().catch(() => null)) as { wallet?: string | null; tier?: TierId; error?: string } | null) : null;
@@ -88,11 +93,12 @@ export default function AlertsCenter({ onOpenToken, onOpenWallet, onOpenSat, age
       else if (proof && json?.error) updateLink({ proof: undefined });
     }, SYNC_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [linkToken, proof, settings, follows, allRules, saveLink, updateLink]);
+  }, [linkToken, proof, settings, follows, allRules, agentTelegram, strategy, saveLink, updateLink]);
 
   const fire = useCallback(
     (items: AlertItem[]) => {
       if (items.length === 0) return;
+      setMood(items.some((i) => i.kind === "whale" || i.kind === "follow") ? "whale" : "pump");
       setToasts((prev) => [...items.slice(-MAX_TOASTS), ...prev].slice(0, MAX_TOASTS));
       setUnread((n) => n + items.length);
       for (const item of items) {
@@ -228,6 +234,9 @@ export default function AlertsCenter({ onOpenToken, onOpenWallet, onOpenSat, age
         <div className="toasts">
           {toasts.map((t) => (
             <button key={t.id} className={`toast ${t.kind}`} onClick={() => openItem(t)}>
+              <span className="toast-bot">
+                <Satellite mood={t.kind === "whale" || t.kind === "follow" ? "whale" : "pump"} size={40} orbit={false} />
+              </span>
               <strong>{t.title}</strong>
               <span>{t.body}</span>
             </button>

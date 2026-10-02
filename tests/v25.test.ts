@@ -1,6 +1,6 @@
 import { decodeFunctionData, getAddress } from "viem";
 import { describe, expect, it } from "vitest";
-import type { FlowReport } from "@/lib/report/flow";
+import { topTokenBuyers, type FlowReport } from "@/lib/report/flow";
 import { safetyScore, type SafetyInput } from "@/lib/safety/score";
 import { poolId, SAT_POOL_KEY, satUsdFromSqrt } from "@/lib/sat/token";
 import { nextTier, tierFor, TIERS } from "@/lib/sat/tiers";
@@ -117,18 +117,45 @@ describe("launch safety score", () => {
   });
 });
 
+describe("report smart money", () => {
+  it("ranks wallets by net token buys and names the token each bought most", () => {
+    const A = "0x000000000000000000000000000000000000000a" as const;
+    const B = "0x000000000000000000000000000000000000000b" as const;
+    const PEPE = "0x0000000000000000000000000000000000000001" as const;
+    const DOGE = "0x0000000000000000000000000000000000000002" as const;
+    const rows = topTokenBuyers(
+      [
+        { token: PEPE, symbol: "PEPE", side: "buy", usd: 900, trader: A },
+        { token: DOGE, symbol: "DOGE", side: "buy", usd: 300, trader: A },
+        { token: DOGE, symbol: "DOGE", side: "sell", usd: 100, trader: A },
+        { token: DOGE, symbol: "DOGE", side: "buy", usd: 2_000, trader: B },
+        { token: DOGE, symbol: "DOGE", side: "sell", usd: 1_900, trader: B },
+        { token: PEPE, symbol: "PEPE", side: "buy", usd: 50, trader: null },
+      ],
+      3,
+    );
+    expect(rows.map((r) => [r.wallet, r.netUsd, r.topSymbol])).toEqual([
+      [A, 1_100, "PEPE"],
+      [B, 100, "DOGE"],
+    ]);
+  });
+});
+
 describe("daily report caption", () => {
-  it("leads with totals and links back to the site", () => {
+  it("leads with token volume and the hottest tokens, and links back to the site", () => {
     const r = {
       date: "2026-10-01",
-      totals: { volumeUsd: 58_310_000, trades: 100_376, wallets: 2859, stockUsd: 0, ponsUsd: 0, buySharePct: 50 },
+      totals: { volumeUsd: 58_310_000, trades: 100_376, wallets: 2859, stockUsd: 57_000_000, ponsUsd: 1_310_000, buySharePct: 50 },
       pons: { launches: 419, graduations: 3, graduated: [] },
-      inflows: [{ symbol: "NVDA", netUsd: 443_300 }],
-      outflows: [{ symbol: "GOOGL", netUsd: -214_600 }],
+      inflows: [{ symbol: "PEPE", netUsd: 44_300 }],
+      outflows: [{ symbol: "RUG", netUsd: -21_400 }],
+      biggestBuys: [{ symbol: "PEPE", usd: 12_000 }],
     } as unknown as FlowReport;
     const text = formatReport(r, "https://sathood.xyz");
-    expect(text).toContain("$58.31M volume");
-    expect(text).toContain("NVDA +$443.3K");
+    expect(text).toContain("$1.31M token volume");
+    expect(text).not.toContain("$58.31M");
+    expect(text).toContain("PEPE +$44.3K");
+    expect(text).toContain("$12.0K buy of PEPE");
     expect(text).toContain("https://sathood.xyz/report");
   });
 });

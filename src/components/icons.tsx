@@ -2,6 +2,13 @@
 
 const base = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" } as const;
 
+export const IconHome = () => (
+  <svg {...base} aria-hidden>
+    <circle cx="12" cy="11" r="4" />
+    <ellipse cx="12" cy="13" rx="9.5" ry="3.2" />
+    <path d="M12 7V4" />
+  </svg>
+);
 export const IconTerminal = () => (
   <svg {...base} aria-hidden>
     <path d="M3 3v18h18" />
@@ -71,5 +78,15 @@ export const IconBell = () => (
 export const IconBolt = () => (
   <svg {...base} aria-hidden>
     <path d="M13 3L5 14h6l-1 7 8-11h-6z" />
+  </svg>
+);
+export const IconAgent = () => (
+  <svg {...base} aria-hidden>
+    <rect x="5" y="8" width="14" height="11" rx="4" />
+    <path d="M12 8V4.5" />
+    <circle cx="12" cy="3.5" r="1" />
+    <circle cx="9.5" cy="13.5" r="1.2" />
+    <circle cx="14.5" cy="13.5" r="1.2" />
+    <path d="M2.5 12.5v3M21.5 12.5v3" />
   </svg>
 );

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fmtPct, fmtPrice } from "@/lib/format";
 import type { TokenMarket } from "@/lib/types";
+import { setMood } from "./brand/mood";
 import { TokenAvatar } from "./TokenAvatar";
 
 export interface PaletteView {
@@ -73,7 +74,9 @@ export default function CommandPalette({ tokens, views, officialToken, onOpenTok
   }, [open]);
 
   useEffect(() => {
-    if (open) setTimeout(() => inputRef.current?.focus(), 0);
+    if (!open) return;
+    setTimeout(() => inputRef.current?.focus(), 0);
+    setMood("scanning");
   }, [open]);
 
   // Whole-chain search, debounced.

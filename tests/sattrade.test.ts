@@ -1,6 +1,6 @@
 import { decodeFunctionData } from "viem";
 import { describe, expect, it } from "vitest";
-import { encodeSatSwap, satApproveData, satRoute, satRouterAbi, PONS_SWAP_ROUTER } from "@/lib/trade/sat";
+import { encodeSatSwap, routeFor, SAT_TARGET, satApproveData, satRoute, satRouterAbi, PONS_SWAP_ROUTER } from "@/lib/trade/sat";
 
 const SAT = "0xBe3F794BFB99399A4eA9cd5aCf08529eeA6E718A";
 const USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168";
@@ -28,6 +28,23 @@ describe("SAT trading route", () => {
     // Address zero tells the router to pay the signer.
     expect(recipient).toBe("0x0000000000000000000000000000000000000000");
     expect([amountIn, minOut, deadline]).toEqual([10n ** 16n, 123n, 0n]);
+  });
+
+  it("routes native-ETH launches through one v4 hop that takes ETH directly", () => {
+    const t = { token: "0xB3D190087E16b8d49C906a27EE398BfE0F94338c", pairToken: "0x0000000000000000000000000000000000000000", pool: { fee: 0, tickSpacing: 200, hooks: "0xE5e702641Ea86F4ae6cC3cDaeD2B886f976Be044" } } as const;
+    const buy = routeFor(t, "buy")!;
+    expect(buy).toHaveLength(1);
+    expect([buy[0].kind, buy[0].tokenIn, buy[0].tokenOut]).toEqual([2, "0x0000000000000000000000000000000000000000", t.token]);
+    const sell = routeFor(t, "sell")!;
+    expect([sell[0].tokenIn, sell[0].tokenOut]).toEqual([t.token, "0x0000000000000000000000000000000000000000"]);
+  });
+
+  it("uses the launch's own pool settings and refuses pairs it cannot reach", () => {
+    const t = { token: SAT, pairToken: USDG, pool: { fee: 3000, tickSpacing: 60, hooks: "0x0000000000000000000000000000000000000000" } } as const;
+    const [, v4] = routeFor(t, "buy")!;
+    expect([v4.fee, v4.tickSpacing]).toEqual([3000, 60]);
+    expect(routeFor({ ...t, pairToken: "0x1111111111111111111111111111111111111111" }, "buy")).toBeNull();
+    expect(satRoute("buy")).toEqual(routeFor(SAT_TARGET, "buy"));
   });
 
   it("approves exactly the amount being sold, to the router only", () => {
