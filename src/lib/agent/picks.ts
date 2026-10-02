@@ -3,6 +3,7 @@ import { ponsTokenDetail } from "../data/ponsToken";
 import { getPonsProfiles } from "../data/ponsProfile";
 import type { RobinhoodChainProvider } from "../data/robinhood";
 import { exploreUniverse } from "../radar/explore";
+import { buzzLine, getSocial } from "../social/radar";
 import { fitScore, flagCopycats, matchPicks, rejectReason, type Candidate, type Pick, type Strategy } from "./strategy";
 
 /** Launches checked for socials per request; profiles are one multicall per token. */
@@ -63,5 +64,11 @@ export async function picksFor(provider: RobinhoodChainProvider, s: Strategy, li
     shortlist.slice(0, strictSafety ? limit * 2 : 6).map((p) => p.token),
   ).catch(() => new Map<string, { score: number; label: string }>());
   const picks = flagCopycats(matchPicks(s, candidates, now, { limit, safety: strictSafety || safety.size ? safety : undefined }), rows);
+  const social = await getSocial(provider, false).catch(() => null);
+  const buzz = new Map((social?.tokens ?? []).map((b) => [b.token.toLowerCase(), b]));
+  for (const p of picks) {
+    const b = buzz.get(p.token.toLowerCase());
+    if (b) p.reasons.push(`📣 ${buzzLine(b)}`);
+  }
   return { picks, matched: pre.length, scanned, updatedAt };
 }

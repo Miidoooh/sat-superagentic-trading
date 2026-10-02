@@ -16,6 +16,14 @@ const EnvSchema = z.object({
   MOONSHOT_MODEL: z.string().default("kimi-k3"),
   MOONSHOT_BASE_URL: z.string().url().default("https://api.moonshot.ai/v1"),
 
+  /** twitterapi.io key for the X social radar. Without it the radar is off. */
+  TWITTERAPI_IO_KEY: z.preprocess(emptyToUndef, z.string().optional()),
+  /** Seconds between X scans, and a hard daily cap on API calls (each scan is two). */
+  SOCIAL_SCAN_SECONDS: z.coerce.number().int().min(30).max(3600).default(120),
+  SOCIAL_MAX_CALLS_PER_DAY: z.coerce.number().int().min(0).max(100_000).default(1500),
+  /** Posts from accounts with at least this many followers raise alerts. */
+  SOCIAL_ALERT_FOLLOWERS: z.coerce.number().int().min(0).default(10_000),
+
   /** Defaults target Robinhood Chain mainnet. */
   RH_CHAIN_ID: z.coerce.number().int().positive().default(ROBINHOOD_MAINNET.chainId),
   RH_CHAIN_NAME: z.string().default(ROBINHOOD_MAINNET.name),

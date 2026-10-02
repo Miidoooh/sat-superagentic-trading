@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { DEFAULT_ALERT_SETTINGS, detectAlerts, type AlertItem, type AlertSettings } from "@/lib/alerts/detect";
 import { evaluateRules, newRuleState, planPoll } from "@/lib/alerts/rules";
 import { fmtUsd } from "@/lib/format";
+import { socialAlerts, type SocialSnapshot } from "@/lib/social/posts";
 import type { TrenchesSnapshot } from "@/lib/radar/trenches";
 import type { RadarSnapshot } from "@/lib/radar/whales";
 import type { TokenMarket } from "@/lib/types";
@@ -21,6 +23,8 @@ export { detectAlerts, type AlertItem };
 
 const KEY = "sat:alerts";
 const POLL_MS = 15_000;
+const SOCIAL_POLL_MS = 60_000;
+const SOCIAL_MIN_FOLLOWERS = 10_000;
 const SYNC_DEBOUNCE_MS = 800;
 const MAX_TOASTS = 4;
 const TOAST_MS = 9_000;
@@ -150,8 +154,31 @@ export default function AlertsCenter({ onOpenToken, onOpenWallet, onOpenSat, age
     };
   }, [settings, follows, rules, fire]);
 
+  // Big accounts posting about a token, from the X radar.
+  useEffect(() => {
+    if (!settings.enabled) return;
+    let alive = true;
+    let first = true;
+    const seen = new Set<string>();
+    const poll = async () => {
+      const snap = await getJson<SocialSnapshot>(`/api/social?minFollowers=${SOCIAL_MIN_FOLLOWERS}&limit=40`);
+      if (!alive || !snap?.enabled) return;
+      const items = socialAlerts(snap.posts, SOCIAL_MIN_FOLLOWERS).filter((a) => !seen.has(a.id));
+      for (const a of items) seen.add(a.id);
+      if (!first) fire(items);
+      first = false;
+    };
+    void poll();
+    const timer = setInterval(poll, SOCIAL_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [settings.enabled, fire]);
+
   const openItem = (a: AlertItem) => {
-    if (a.token) onOpenToken(a.token, a.url);
+    if (a.kind === "social" && a.url) window.open(a.url, "_blank", "noopener");
+    if (a.token) onOpenToken(a.token, a.kind === "social" ? undefined : a.url);
     else if (a.wallet) onOpenWallet(a.wallet);
     setToasts((prev) => prev.filter((t) => t.id !== a.id));
   };
@@ -173,7 +200,8 @@ export default function AlertsCenter({ onOpenToken, onOpenWallet, onOpenSat, age
           🔔 {settings.enabled ? "alerts on" : "alerts"}
           {unread > 0 && <b className="alerts-count">{unread > 99 ? "99+" : unread}</b>}
         </button>
-        {open && (
+        {open &&
+          createPortal(
           <>
             <div className="drawer-backdrop" onClick={() => setOpen(false)} />
             <aside className="alerts-drawer" role="dialog" aria-label="Alerts">
@@ -227,10 +255,12 @@ export default function AlertsCenter({ onOpenToken, onOpenWallet, onOpenSat, age
               />
               <TelegramPanel />
             </aside>
-          </>
-        )}
+          </>,
+            document.body,
+          )}
       </div>
-      {toasts.length > 0 && (
+      {toasts.length > 0 &&
+        createPortal(
         <div className="toasts">
           {toasts.map((t) => (
             <button key={t.id} className={`toast ${t.kind}`} onClick={() => openItem(t)}>
@@ -241,8 +271,9 @@ export default function AlertsCenter({ onOpenToken, onOpenWallet, onOpenSat, age
               <span>{t.body}</span>
             </button>
           ))}
-        </div>
-      )}
+        </div>,
+          document.body,
+        )}
     </>
   );
 }

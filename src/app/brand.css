@@ -988,6 +988,79 @@ html body {
   }
 }
 
+/* X radar posts */
+.sx-post {
+  display: flex;
+  gap: 10px;
+  padding: 10px 4px;
+  border-top: 1px solid var(--hairline);
+  color: inherit;
+  text-decoration: none;
+}
+.sx-post:first-of-type {
+  border-top: 0;
+}
+.sx-post:hover {
+  background: rgba(160, 170, 255, 0.04);
+}
+.sx-post-av {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--panel-3);
+  object-fit: cover;
+}
+.sx-post-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.sx-post-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+}
+.sx-post-f {
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: #c8d0ee;
+  background: rgba(160, 170, 255, 0.08);
+}
+.sx-post-f.big {
+  color: #0a0f00;
+  background: var(--accent);
+  font-weight: 700;
+}
+.sx-post-tok {
+  padding: 0 7px;
+  border: 1px solid rgba(204, 255, 0, 0.4);
+  border-radius: 6px;
+  background: rgba(204, 255, 0, 0.08);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sx-post-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 13px;
+  color: #c8d0ee;
+  line-height: 1.4;
+}
+
+/* Toasts render on <body>, above the drawer and every view. */
+.toasts {
+  z-index: 90;
+}
+
 /* Token avatars sit centred in the trending marquee. */
 .ticker .tick:has(.tok-av) {
   align-items: center;

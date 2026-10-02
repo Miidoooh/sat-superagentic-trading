@@ -10,6 +10,7 @@ import { STYLE_PRESETS, type Strategy } from "../src/lib/agent/strategy";
 import { recordPicks } from "../src/lib/agent/track";
 import { detectAlerts, type AlertItem, type AlertSettings } from "../src/lib/alerts/detect";
 import { exploreUniverse } from "../src/lib/radar/explore";
+import { getSocial, socialAlerts } from "../src/lib/social/radar";
 import { tierOf } from "../src/lib/sat/gate";
 import { evaluateRules, newRuleState, planPoll, type RuleState } from "../src/lib/alerts/rules";
 import { getProvider } from "../src/lib/data/provider";
@@ -190,6 +191,36 @@ async function runAgents(live: RobinhoodChainProvider) {
   }
 }
 
+const SOCIAL_FRESH_S = 15 * 60;
+const ALPHA_SOCIAL_FOLLOWERS = 50_000;
+
+/** Keep the X radar fresh and send big-account token posts to linked chats and the alpha channel. */
+async function runSocial(live: RobinhoodChainProvider) {
+  const snap = await getSocial(live);
+  const cfg = telegramConfig();
+  if (!snap.enabled || !cfg) return;
+  const now = Math.floor(Date.now() / 1000);
+  const recent = snap.posts.filter((p) => now - p.at <= SOCIAL_FRESH_S);
+  const minFollowers = Number(process.env.SOCIAL_ALERT_FOLLOWERS ?? 10_000);
+  const items = socialAlerts(recent, minFollowers);
+  if (!items.length) return;
+  for (const { token, sub } of await listSubscriptions()) {
+    if (!sub.settings.enabled) continue;
+    for (const item of items.slice(0, 3)) {
+      if (!(await markSent(token, item.id))) continue;
+      await sendMessage(cfg, sub.chatId, formatAlert(item, cfg.siteUrl)).catch((err) => log("social send failed", sub.chatId, message(err)));
+    }
+  }
+  const chat = process.env.TELEGRAM_ALPHA_CHAT_ID;
+  if (!chat) return;
+  for (const item of socialAlerts(recent, ALPHA_SOCIAL_FOLLOWERS).slice(0, 2)) {
+    const key = `alpha:sent:${item.id}`;
+    if (await getKv().get(key)) continue;
+    await getKv().set(key, 1, 48 * 3600_000);
+    await sendMessage(cfg, chat, formatAlpha(item, cfg.siteUrl));
+  }
+}
+
 const REPORT_EVERY = Math.round(10 * 60_000 / TICK_MS);
 const REPORT_POST_HOUR_UTC = Number(process.env.REPORT_POST_HOUR_UTC ?? 14);
 
@@ -251,7 +282,10 @@ function main() {
       await deliver(live, states, radars, trenches, markets);
       await postAlpha(alpha, radars, trenches).catch((err) => log("alpha failed", message(err)));
       if (tick % REPORT_EVERY === 0) await runReport(live).catch((err) => log("report failed", message(err)));
-      if (tick % AGENT_EVERY === 0) await runAgents(live).catch((err) => log("agents failed", message(err)));
+      if (tick % AGENT_EVERY === 0) {
+        await runSocial(live).catch((err) => log("social failed", message(err)));
+        await runAgents(live).catch((err) => log("agents failed", message(err)));
+      }
     } catch (err) {
       log("tick failed", message(err));
     }

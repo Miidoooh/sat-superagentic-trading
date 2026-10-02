@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { fmtPct, fmtPrice, fmtUsd } from "@/lib/format";
 import { useSat } from "../sat";
-import { LiveLaunches, LiveMarkets, LiveScan, LiveTrending, LiveWhales } from "./LiveWidgets";
+import { LiveLaunches, LiveMarkets, LiveScan, LiveSocial, LiveTrending, LiveWhales } from "./LiveWidgets";
 import Satellite, { type SatMood } from "./Satellite";
 import { useMood } from "./mood";
 
@@ -43,6 +43,9 @@ export default function HomeView({ onOpenToken, onExplore, onRadar }: { onOpenTo
           <button className="more" onClick={onRadar} style={{ background: "none" }}>
             Open the Whale Radar →
           </button>
+        </div>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <LiveSocial onOpen={onOpenToken} />
         </div>
         <LiveLaunches onOpen={onOpenToken} />
         <LiveScan onOpen={onOpenToken} />

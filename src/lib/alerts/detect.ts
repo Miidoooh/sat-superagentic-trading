@@ -15,7 +15,7 @@ export const DEFAULT_ALERT_SETTINGS: AlertSettings = { enabled: false, whaleUsd:
 
 export interface AlertItem {
   id: string;
-  kind: "whale" | "graduation" | "follow" | "launch" | "rule";
+  kind: "whale" | "graduation" | "follow" | "launch" | "rule" | "social";
   title: string;
   body: string;
   token?: string;

@@ -5,6 +5,7 @@ import { fmtAgo, fmtPct, fmtPrice, fmtUsd } from "@/lib/format";
 import type { PonsTokenDetail } from "@/lib/data/ponsToken";
 import type { ExplorePage } from "@/lib/radar/explore";
 import type { RadarSnapshot } from "@/lib/radar/whales";
+import { compactCount, type SocialSnapshot } from "@/lib/social/posts";
 import type { TokenMarket } from "@/lib/types";
 import { Flash } from "../Flash";
 import { TokenAvatar } from "../TokenAvatar";
@@ -121,6 +122,52 @@ export function LiveTrending({ limit = 5, onOpen }: { limit?: number; onOpen?: O
             </div>
           </span>
         </div>
+      ))}
+    </div>
+  );
+}
+
+/** Who on X is talking about Robinhood Chain tokens right now, biggest accounts flagged. */
+export function LiveSocial({ limit = 6, onOpen }: { limit?: number; onOpen?: Open }) {
+  const { data } = usePoll<SocialSnapshot>(`/api/social?limit=${limit * 3}`, 30_000);
+  const now = useNow();
+  // Token posts first; ecosystem chatter from big accounts fills the rest.
+  const posts = data ? [...data.posts.filter((p) => p.tokens.length), ...data.posts.filter((p) => !p.tokens.length)].slice(0, limit) : [];
+  return (
+    <div className="sx-card">
+      <div className="sx-card-head">
+        <span>On X · who&apos;s talking</span>
+        <span className="sx-live-tag">
+          <span className="dot live" /> live
+        </span>
+      </div>
+      {!data && <Skeleton n={4} />}
+      {data && !data.enabled && <div className="dim">The X radar is off on this server.</div>}
+      {data?.enabled && posts.length === 0 && <div className="dim">Listening to X for Robinhood Chain tokens…</div>}
+      {posts.map((p) => (
+        <a key={p.id} className="sx-post" href={p.url} target="_blank" rel="noreferrer noopener">
+          {p.author.avatar ? <img className="sx-post-av" src={p.author.avatar} alt="" width={30} height={30} /> : <span className="sx-post-av" />}
+          <span className="sx-post-body">
+            <span className="sx-post-head">
+              <b>@{p.author.userName}</b>
+              <span className={`sx-post-f ${p.author.followers >= 10_000 ? "big" : ""}`}>{compactCount(p.author.followers)}</span>
+              <span className="dim">{fmtAgo(p.at, now)}</span>
+              {p.tokens.slice(0, 2).map((t) => (
+                <button
+                  key={t.token}
+                  className="sx-post-tok"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onOpen?.(t.token);
+                  }}
+                >
+                  ${t.symbol}
+                </button>
+              ))}
+            </span>
+            <span className="sx-post-text">{p.text}</span>
+          </span>
+        </a>
       ))}
     </div>
   );
